@@ -5,6 +5,10 @@
    - 自动同步：Store.save() 触发防抖自动推送；拉取覆盖时刷新页面。
 */
 const Sync = { session: null, localTs: 0, _pushTimer: null, _busy: false, _applying: false, lastOk: 0 };
+/* 本地同步基线（上次成功同步时的云端时间戳）与上次成功时间：读取持久化值，
+   防止页面刷新后基线归零、把云端数据反复判定为“更新”导致无限刷新 */
+Sync.localTs = parseInt(localStorage.getItem('cz-local-ts') || '0', 10) || 0;
+Sync.lastOk = parseInt(localStorage.getItem('cz-sync-last-ok') || '0', 10) || 0;
 
 Sync.loadSession = function () {
   try { return JSON.parse(localStorage.getItem('cz-sync-session') || 'null'); } catch (e) { return null; }
@@ -142,14 +146,53 @@ Sync.start = function (providerKey, token, onDone, onError) {
     });
 };
 
+/* 会话持久化 */
+Sync._saveSession = function () {
+  if (Sync.session) localStorage.setItem('cz-sync-session', JSON.stringify(Sync.session));
+};
+
+/* 统一推进“本地已同步基线”并持久化：推送/覆盖共用。
+   基线写入 localStorage，页面刷新后不会丢失，从根本上避免无限刷新 */
+Sync._syncLocalTs = function (ts, docId) {
+  Sync.localTs = ts;
+  localStorage.setItem('cz-local-ts', String(ts));
+  if (Sync.session) {
+    Sync.session.docTs = ts;
+    if (docId) Sync.session.docId = docId;
+    Sync._saveSession();
+  }
+};
+
+/* 逐条合并：每个小区按 updatedAt 取较新的一条，本地与云端条目都保留，不整库覆盖 */
+Sync._merge = function (local, incoming) {
+  const communities = {};
+  const ids = {};
+  Object.keys(local.communities || {}).forEach(id => { ids[id] = 1; });
+  Object.keys(incoming.communities || {}).forEach(id => { ids[id] = 1; });
+  Object.keys(ids).forEach(id => {
+    const a = (local.communities || {})[id];
+    const b = (incoming.communities || {})[id];
+    if (!a) communities[id] = b;
+    else if (!b) communities[id] = a;
+    else communities[id] = ((b.updatedAt || 0) >= (a.updatedAt || 0)) ? b : a;
+  });
+  const merged = Object.assign({}, local, { communities: communities });
+  if (Array.isArray(incoming.circles)) merged.circles = incoming.circles;
+  return merged;
+};
+
 Sync.handshake = function () {
   const p = SyncProviders[Sync.session.provider];
   return p.find(Sync.session.token, Sync.session.username).then(found => {
-    if (!found) return Sync._pushNow();
+    if (!found) return Sync._pushNow();                 // 云端无数据：推送本地
     Sync.session.docId = found.id;
     const cloud = found.doc || {};
-    if ((cloud.ts || 0) > Sync.localTs) return Sync._applyCloud(cloud);
-    return Sync._pushNow();
+    if (!cloud.ts) return Sync._pushNow();              // 云端文件异常/为空：用本地覆盖
+    /* 基线取“上次同步时间”与“上次已知云端时间”的较大值，
+       推送中途页面被刷新导致基线落后时也不会误判 */
+    const base = Math.max(Sync.localTs, Sync.session.docTs || 0);
+    if (cloud.ts > base) return Sync._applyCloud(cloud, found.id);
+    Sync._saveSession();                                // 云端不更新：只记录最新 sha，不推送、不刷新
   });
 };
 
@@ -157,25 +200,30 @@ Sync._pushNow = function () {
   const p = SyncProviders[Sync.session.provider];
   const doc = { ts: Date.now(), data: Store.data };
   return p.save(Sync.session.token, Sync.session.username, Sync.session.docId, doc).then(res => {
-    if (res && res.id) Sync.session.docId = res.id;
-    localStorage.setItem('cz-sync-session', JSON.stringify(Sync.session));
-    Sync.localTs = doc.ts;
+    Sync._syncLocalTs(doc.ts, res && res.id);
     Sync.lastOk = Date.now();
+    localStorage.setItem('cz-sync-last-ok', String(Sync.lastOk));
     return true;
   });
 };
 
-Sync._applyCloud = function (cloud) {
+/* 云端覆盖本地：逐条合并（_merge）避免本地笔记丢失；成功后推进基线，只刷新一次 */
+Sync._applyCloud = function (cloud, docId) {
+  if (Sync._applying) return false;
   Sync._applying = true;
   try {
-    const incoming = cloud.data || {};
-    Store.data.communities = incoming.communities || {};
-    Store.data.records = incoming.records || {};
-    if (incoming.circles !== undefined) Store.data.circles = incoming.circles;
-    Sync.localTs = cloud.ts || Date.now();
+    const theirs = cloud.ts || 0;
+    const base = Math.max(Sync.localTs, (Sync.session && Sync.session.docTs) || 0);
+    if (theirs <= base) return false;                   // 并非新数据
+    /* 保险丝：10 秒内已做过覆盖 → 只对齐基线、不再刷新，极端情况也不会循环 */
+    const lastApply = parseInt(localStorage.getItem('cz-sync-last-apply') || '0', 10);
+    if (Date.now() - lastApply < 10000) { Sync._syncLocalTs(theirs, docId); return false; }
+    Store.data = Sync._merge(Store.data, cloud.data || {});
     Store._persist();
-    localStorage.setItem('cz-sync-last-ok', String(Date.now()));
+    Sync._syncLocalTs(theirs, docId);
+    localStorage.setItem('cz-sync-last-apply', String(Date.now()));
     Sync.lastOk = Date.now();
+    localStorage.setItem('cz-sync-last-ok', String(Sync.lastOk));
     setTimeout(function () { location.reload(); }, 300);
   } finally { Sync._applying = false; }
   return true;
@@ -188,8 +236,9 @@ Sync.pull = function () {
     if (!found) { toast('云端暂无数据', true); return false; }
     Sync.session.docId = found.id;
     const cloud = found.doc || {};
-    if ((cloud.ts || 0) <= Sync.localTs) { toast('云端没有更新的数据', true); return false; }
-    return Sync._applyCloud(cloud);
+    const base = Math.max(Sync.localTs, Sync.session.docTs || 0);
+    if (!cloud.ts || cloud.ts <= base) { toast('云端没有更新的数据', true); Sync._saveSession(); return false; }
+    return Sync._applyCloud(cloud, found.id);
   });
 };
 

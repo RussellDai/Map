@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>常州购房地图 · 遥观13km / 金坛37km</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
+<link rel="stylesheet" href="css/style.css?v=7">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">🏠 常州购房地图</div>
+  <div class="search-box">
+    <input id="searchInput" type="text" placeholder="搜索小区 / 地名（如：湖塘、礼河、万科）" autocomplete="off">
+    <button id="searchBtn">搜索</button>
+    <div id="searchResults" class="search-results hidden"></div>
+  </div>
+  <div class="actions">
+    <button id="addModeBtn" class="btn" title="开启后点击地图任意位置手动添加小区">➕ 手动标记小区</button>
+    <button id="exportBtn" class="btn" title="导出已保存的小区信息与圆心位置">⬇ 导出</button>
+    <button id="importBtn" class="btn" title="从 JSON 文件恢复数据">⬆ 导入</button>
+    <input type="file" id="importFile" accept=".json,application/json" class="hidden">
+  </div>
+</header>
+<div id="main">
+  <aside id="sidebar">
+    <div class="sidebar-head">
+      <h2>我的小区清单 <span id="countBadge">0</span></h2>
+    </div>
+    <div class="filters">
+      <label><input type="checkbox" id="fltBoth"> 两圈交集</label>
+      <label><input type="checkbox" id="fltYaoguan"> 遥观13km内</label>
+      <label><input type="checkbox" id="fltJintan"> 金坛37km内</label>
+      <select id="fltLevel" title="按分级筛选">
+        <option value="">全部等级</option>
+        <option value="focus">🔴 重点关注</option>
+        <option value="backup">🔵 备选</option>
+        <option value="exclude">⚫ 排除</option>
+        <option value="none">未分级</option>
+      </select>
+    </div>
+    <div id="communityList" class="community-list"></div>
+    <div class="sidebar-foot">
+      <div class="legend">
+        <span><span class="dot" style="background:#94a3b8"></span>未填信息</span>
+        <span><span class="dot" style="background:#10b981"></span>已填信息</span>
+        <span><span class="dot ring" style="border-color:#dc2626"></span>重点关注</span>
+        <span><span class="dot ring" style="border-color:#2563eb"></span>备选</span>
+        <span><span class="dot ring dash" style="border-color:#64748b"></span>排除</span>
+        <span><span class="dot" style="background:#2563eb"></span>遥观13km</span>
+        <span><span class="dot" style="background:#ea580c"></span>金坛37km</span>
+      </div>
+      <p class="tip">💡 悬停看信息，点击填写；分级不改底色（红圈=重点关注 / 蓝圈=备选 / 灰虚圈=排除）；🌐 街景、🏙 3D实景；圆心图钉可拖拽微调。</p>
+    </div>
+  </aside>
+  <div id="map"></div>
+</div>
+<div id="statusBar" class="hidden"></div>
+<div id="toast" class="hidden"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>window.L||document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')</script>
+<script src="js/gcoord.js?v=8"></script>
+<script src="js/config.js?v=8"></script>
+<script src="js/store.js?v=8"></script>
+<script src="js/overpass.js?v=8"></script>
+<script src="js/ui.js?v=8"></script>
+<script src="js/amap3d.js?v=8"></script>
+<script src="js/app.js?v=8"></script>
+</body>
+</html>

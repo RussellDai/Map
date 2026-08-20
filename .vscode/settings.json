@@ -1,0 +1,5 @@
+{
+  /* Live Server 绑定 0.0.0.0：允许同一局域网内的其他电脑/手机通过本机 IP 访问本页面 */
+  "liveServer.settings.host": "0.0.0.0",
+  "liveServer.settings.port": 5500
+}

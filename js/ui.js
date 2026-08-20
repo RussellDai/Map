@@ -39,6 +39,21 @@ function openStreetView(c) {
   }
 }
 
+/* ---- 更多实景：Google Earth Web 三维 / 航拍视频搜索 ---- */
+/* Google Earth Web：谷歌级清晰三维实景（含 3D 建筑与地形），坐标需 WGS84 */
+function openGoogleEarth(c) {
+  if (!c || !isFinite(+c.lat) || !isFinite(+c.lng)) { toast('该小区缺少有效坐标', 'error'); return; }
+  const w = GC.gcj02ToWgs84(c.lng, c.lat);
+  window.open('https://earth.google.com/web/@' + w[1].toFixed(6) + ',' + w[0].toFixed(6) +
+    ',200a,800d,35y,0h,45t,0r', '_blank');
+}
+/* B站搜索小区航拍/实景视频（国内可访问，视频比瓦片 3D 更直观清晰） */
+function openAerialVideo(c) {
+  if (!c || !c.name) { toast('缺少小区名称', 'error'); return; }
+  window.open('https://search.bilibili.com/all?keyword=' +
+    encodeURIComponent(c.name + ' 航拍 实景'), '_blank');
+}
+
 /* ---- 悬停提示内容 ---- */
 function tooltipHTML(c) {
   let h = '<div class="tip-name">' + escHtml(c.name) + '</div>';
@@ -84,6 +99,9 @@ function openEditor(id) {
     '  <button class="btn primary" id="f-save">💾 保存</button>' +
     '  <button class="btn" id="f-street">🌐 街景</button>' +
     '  <button class="btn" id="f-3d">🏙 3D实景</button>' +
+    '  <button class="btn" id="f-g3d" title="Google Earth Web 三维实景（更清晰，需可访问 Google 的网络）">🌏 Google 3D</button>' +
+    '  <button class="btn" id="f-video" title="在 B站 搜索该小区航拍/实景视频">🎬 航拍视频</button>' +
+    '  <button class="btn" id="f-photos" title="在百度图片搜索该小区实景照片">📷 实景照片</button>' +
     '  <button class="btn danger" id="f-del">🗑 删除</button>' +
     '  <button class="btn" id="f-cancel">关闭</button>' +
     '</div>';
@@ -145,6 +163,13 @@ function openEditor(id) {
   syncLevelUI();
   $('f-street').onclick = () => openStreetView(App.records.get(id));
   $('f-3d').onclick = () => Amap3d.open(App.records.get(id));
+  $('f-g3d').onclick = () => openGoogleEarth(App.records.get(id));
+  $('f-video').onclick = () => openAerialVideo(App.records.get(id));
+  $('f-photos').onclick = () => {
+    const c = App.records.get(id) || {};
+    window.open('https://image.baidu.com/search/index?tn=baiduimage&word=' +
+      encodeURIComponent((c.name || '小区') + ' 小区 实景'), '_blank');
+  };
 
   /* 距离徽章（放在按钮绑定之后，异常不影响保存） */
   $('f-dist').innerHTML = Object.values(App.centers).map(ct => {
@@ -211,31 +236,35 @@ function renderSidebar() {
       (c.cons ? '<div class="card-line bad">👎 ' + escHtml(truncate(c.cons, 30)) + '</div>' : '') +
       '<div class="card-levels">' + lvDots +
       '<button class="lv-street" data-act="street" title="查看该位置街景（Mapillary）">🌐 街景</button>' +
-      '<button class="lv-street" data-act="3d" title="查看该位置高德 3D 实景">🏙 3D</button></div>' +
+      '<button class="lv-street" data-act="3d" title="查看该位置高德 3D 实景">🏙 3D</button>' +
+      '<button class="lv-street" data-act="video" title="搜索该小区航拍/实景视频（B站）">🎬 航拍</button></div>' +
       '<div class="card-btns">' +
       '<button data-act="go">📍 定位</button>' +
       '<button data-act="edit">✏️ 编辑</button>' +
       '<button data-act="del">🗑 删除</button></div>';
-    card.querySelectorAll('[data-act=lv]').forEach(btn => {
+    card.querySelectorAll('[data-act="lv"]').forEach(btn => {
       btn.onclick = e => {
         e.stopPropagation();
         App.setLevel(c.id, c.level === btn.dataset.lv ? '' : btn.dataset.lv);
       };
     });
-    card.querySelector('[data-act=street]').onclick = e => {
+    card.querySelector('[data-act="street"]').onclick = e => {
       e.stopPropagation(); openStreetView(App.records.get(c.id));
     };
-    card.querySelector('[data-act=3d]').onclick = e => {
+    card.querySelector('[data-act="3d"]').onclick = e => {
       e.stopPropagation(); Amap3d.open(App.records.get(c.id) || c);
     };
-    card.querySelector('[data-act=go]').onclick = e => {
+    card.querySelector('[data-act="video"]').onclick = e => {
+      e.stopPropagation(); openAerialVideo(App.records.get(c.id) || c);
+    };
+    card.querySelector('[data-act="go"]').onclick = e => {
       e.stopPropagation(); App.map.flyTo([c.lat, c.lng], 15);
     };
-    card.querySelector('[data-act=edit]').onclick = e => {
+    card.querySelector('[data-act="edit"]').onclick = e => {
       e.stopPropagation(); App.map.flyTo([c.lat, c.lng], 15);
       setTimeout(() => openEditor(c.id), 500);
     };
-    card.querySelector('[data-act=del]').onclick = e => {
+    card.querySelector('[data-act="del"]').onclick = e => {
       e.stopPropagation();
       if (confirm('确定删除「' + c.name + '」？')) App.removeCommunity(c.id);
     };

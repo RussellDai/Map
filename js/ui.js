@@ -253,12 +253,32 @@ function fetchJsonTimeout(url, ms) {
     .finally(() => clearTimeout(t));
 }
 
+/* 常州优先：bbox S,W,N,E 数值、中心点、viewbox，用于搜索排序与地理编码偏好 */
+function czBounds() { return CONFIG.czBBox.split(',').map(Number); }
+function czCenter() { const b = czBounds(); return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; }
+function czViewBox() { const b = czBounds(); return [b[1], b[2], b[3], b[0]].join(','); }
+function inChangzhou(lat, lng) {
+  const b = czBounds();
+  return isFinite(lat) && isFinite(lng) &&
+    lat >= b[0] && lng >= b[1] && lat <= b[2] && lng <= b[3];
+}
+
+/* 结果行重排：本地已保存 > 常州范围内/地址含常州 > 其他地区（稳定排序） */
+function sortSearchRows(box) {
+  const st = box.querySelector('.sr-status');
+  const items = Array.prototype.slice.call(box.querySelectorAll('.sr-item:not(.sr-status)'));
+  items.sort((a, b) =>
+    ((+b.dataset.local || 0) - (+a.dataset.local || 0)) ||
+    ((+b.dataset.cz || 0) - (+a.dataset.cz || 0)));
+  items.forEach(it => box.insertBefore(it, st));
+}
+
 /* 搜索地图上已加载/已保存的小区，返回条数 */
 function renderLocalHits(box, kw) {
   let n = 0;
   App.records.forEach(c => {
     if (n < 8 && c.name && c.name.indexOf(kw) >= 0) {
-      addSearchRow(box, c.name, hasInfo(c) ? '已保存信息的小区' : '已加载小区', c.lat, c.lng, true);
+      addSearchRow(box, c.name, hasInfo(c) ? '已保存信息的小区' : '已加载小区', c.lat, c.lng, true, true);
       n++;
     }
   });
@@ -266,7 +286,7 @@ function renderLocalHits(box, kw) {
 }
 
 /* 添加一条搜索结果。isGcj 表示 lat/lng 是否已是 GCJ02 坐标 */
-function addSearchRow(box, name, sub, lat, lng, isGcj) {
+function addSearchRow(box, name, sub, lat, lng, isGcj, isLocal) {
   if (!box._seen) box._seen = new Set();
   const key = name + lat.toFixed(3) + lng.toFixed(3);
   if (box._seen.has(key)) return;
@@ -274,6 +294,8 @@ function addSearchRow(box, name, sub, lat, lng, isGcj) {
   const p = isGcj ? [lng, lat] : GC.wgs84ToGcj02(lng, lat);
   const item = document.createElement('div');
   item.className = 'sr-item';
+  item.dataset.local = isLocal ? '1' : '0';
+  item.dataset.cz = (inChangzhou(p[1], p[0]) || /常州/.test(String(name || '') + String(sub || ''))) ? '1' : '0';
   item.innerHTML = '<span class="sr-name">' + escHtml(name) +
     (sub ? '<span class="sr-sub">' + escHtml(sub) + '</span>' : '') +
     '</span><button class="sr-add" title="在此处标记为我的小区">＋标记</button>';
@@ -309,6 +331,7 @@ async function doSearch() {
 
   if (searchCache.has(kw)) {
     searchCache.get(kw).forEach(r => addSearchRow(box, r[0], r[1], r[2], r[3], false));
+    sortSearchRows(box);
     setSearchStatus(box, '✅（缓存结果）点击行定位，「＋标记」加为小区');
     return;
   }
@@ -320,7 +343,9 @@ async function doSearch() {
   /* ① Photon 地理编码（通常 1~2 秒） */
   setSearchStatus(box, localN ? '↑ 本地匹配；正在联网搜索…' : '🔍 正在联网搜索（Photon 地理编码）…');
   try {
-    const json = await fetchJsonTimeout('https://photon.komoot.io/api/?q=' + encodeURIComponent(kw) + '&limit=10', 8000);
+    const czc = czCenter();  // 以常州中心做位置偏好，同名地点优先返回常州（注意：Photon lang 仅支持 default/de/en/fr，勿加 zh）
+    const json = await fetchJsonTimeout('https://photon.komoot.io/api/?q=' + encodeURIComponent(kw) +
+      '&limit=10&lat=' + czc[0].toFixed(4) + '&lon=' + czc[1].toFixed(4), 8000);
     if (my !== searchToken) return;
     ((json && json.features) || []).forEach(f => {
       const pp = (f && f.properties) || {};
@@ -328,6 +353,7 @@ async function doSearch() {
       collect(pp.name, [pp.district, pp.city, pp.state].filter(Boolean).join(' '),
         f.geometry.coordinates[1], f.geometry.coordinates[0]);
     });
+    sortSearchRows(box);  // 常州结果置顶
   } catch (e) { console.warn('Photon 不可用:', e.message); }
 
   /* ② Nominatim 地理编码备用 */
@@ -335,12 +361,14 @@ async function doSearch() {
     setSearchStatus(box, '🔍 换用 Nominatim 地理编码…');
     try {
       const json = await fetchJsonTimeout(
-        'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=10&accept-language=zh-CN&q=' + encodeURIComponent(kw), 8000);
+        'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=10&accept-language=zh-CN' +
+        '&viewbox=' + czViewBox() + '&bounded=0&q=' + encodeURIComponent(kw), 8000);
       if (my !== searchToken) return;
       (json || []).forEach(r => {
         const nm = r.name || (r.display_name || '').split(',')[0];
         if (nm) collect(nm, r.display_name, parseFloat(r.lat), parseFloat(r.lon));
       });
+      sortSearchRows(box);  // 常州结果置顶
     } catch (e) { console.warn('Nominatim 不可用:', e.message); }
   }
 
@@ -360,6 +388,7 @@ async function doSearch() {
         if (lat == null || lng == null) return;
         collect(tags.name, '', lat, lng);
       });
+      sortSearchRows(box);
     } catch (e) { console.warn('Overpass 搜索失败:', e.message); }
   }
 

@@ -219,6 +219,7 @@ function renderSidebar() {
     const lv = levelOf(c);
     const card = document.createElement('div');
     card.className = 'card' + (lv ? ' lv-' + lv.key : '');
+    card.dataset.id = c.id;   /* 供搜索联动定位高亮（focusSidebarCard） */
     let badges = Object.values(App.centers).map(ct => {
       const dd = d[ct.cfg.key], inR = dd <= ct.cfg.radius / 1000;
       return '<span class="badge ' + (inR ? 'in' : 'out') + '">' +
@@ -296,7 +297,7 @@ function inChangzhou(lat, lng) {
     lat >= b[0] && lng >= b[1] && lat <= b[2] && lng <= b[3];
 }
 
-/* 结果行重排：本地已保存 > 常州范围内/地址含常州 > 其他地区（稳定排序） */
+/* 结果行重排：已标记(local=2) > 已加载(local=1) > 在线结果(0)；同级常州优先（稳定排序） */
 function sortSearchRows(box) {
   const st = box.querySelector('.sr-status');
   const items = Array.prototype.slice.call(box.querySelectorAll('.sr-item:not(.sr-status)'));
@@ -306,20 +307,48 @@ function sortSearchRows(box) {
   items.forEach(it => box.insertBefore(it, st));
 }
 
-/* 搜索地图上已加载/已保存的小区，返回条数 */
+/* 搜索本地小区：① 已保存（已标记）小区全量搜、置顶；② 地图上已加载但未保存的小区限量补充 */
 function renderLocalHits(box, kw) {
   let n = 0;
+  Store.all().forEach(c => {
+    if (!c || !c.name || c.name.indexOf(kw) < 0) return;
+    if (!isFinite(+c.lat) || !isFinite(+c.lng)) return;
+    const lvIcon = (c.level && LV_ICON[c.level]) ? LV_ICON[c.level] + ' ' : '';
+    addSearchRow(box, c.name, lvIcon + '已标记小区' + (hasInfo(c) ? ' · 已填信息' : ''),
+      +c.lat, +c.lng, true, '2', c.id);
+    n++;
+  });
   App.records.forEach(c => {
-    if (n < 8 && c.name && c.name.indexOf(kw) >= 0) {
-      addSearchRow(box, c.name, hasInfo(c) ? '已保存信息的小区' : '已加载小区', c.lat, c.lng, true, true);
-      n++;
-    }
+    if (n >= 16) return;
+    if (!c || !c.name || c.name.indexOf(kw) < 0) return;
+    if (Store.get(c.id)) return; /* 已保存的上面已展示 */
+    addSearchRow(box, c.name, '已加载小区', c.lat, c.lng, true, '1');
+    n++;
   });
   return n;
 }
 
-/* 添加一条搜索结果。isGcj 表示 lat/lng 是否已是 GCJ02 坐标 */
-function addSearchRow(box, name, sub, lat, lng, isGcj, isLocal) {
+/* 搜索联动：滚动到左侧清单对应卡片并高亮闪烁；卡片被筛选隐藏时返回 false */
+function focusSidebarCard(id) {
+  const sb = $('sidebar');
+  if (sb && sb.classList.contains('collapsed')) {      /* 手机端先展开清单 */
+    sb.classList.remove('collapsed');
+    const t = $('sidebarToggle'); if (t) t.textContent = '▾';
+    if (App.map) App.map.invalidateSize();
+  }
+  const card = document.querySelector('#communityList .card[data-id="' + id + '"]');
+  if (!card) return false;
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  card.classList.remove('search-flash');
+  void card.offsetWidth;                              /* 强制重排，允许动画重放 */
+  card.classList.add('search-flash');
+  setTimeout(() => card.classList.remove('search-flash'), 2400);
+  return true;
+}
+
+/* 添加一条搜索结果。isGcj 表示 lat/lng 是否已是 GCJ02 坐标；
+   isLocal：'2'=已标记小区 / '1'=已加载小区 / false=在线结果；recordId 为已标记小区的 id */
+function addSearchRow(box, name, sub, lat, lng, isGcj, isLocal, recordId) {
   if (!box._seen) box._seen = new Set();
   const key = name + lat.toFixed(3) + lng.toFixed(3);
   if (box._seen.has(key)) return;
@@ -327,21 +356,29 @@ function addSearchRow(box, name, sub, lat, lng, isGcj, isLocal) {
   const p = isGcj ? [lng, lat] : GC.wgs84ToGcj02(lng, lat);
   const item = document.createElement('div');
   item.className = 'sr-item';
-  item.dataset.local = isLocal ? '1' : '0';
+  item.dataset.local = isLocal === '2' ? '2' : (isLocal ? '1' : '0');
   item.dataset.cz = (inChangzhou(p[1], p[0]) || /常州/.test(String(name || '') + String(sub || ''))) ? '1' : '0';
   item.innerHTML = '<span class="sr-name">' + escHtml(name) +
+    (recordId ? '<span class="sr-sub"><i class="sr-saved-tag">⭐ 已标记</i></span>' : '') +
     (sub ? '<span class="sr-sub">' + escHtml(sub) + '</span>' : '') +
-    '</span><button class="sr-add" title="在此处标记为我的小区">＋标记</button>';
+    '</span>' + (recordId ? '' : '<button class="sr-add" title="在此处标记为我的小区">＋标记</button>');
   item.onclick = () => {
     App.map.flyTo([p[1], p[0]], 15);
-    App.showSearchPin([p[1], p[0]], name);
+    if (recordId) {
+      /* 已标记小区：与左侧清单联动；卡片被筛选隐藏时退回图钉提示 */
+      if (!focusSidebarCard(recordId)) App.showSearchPin([p[1], p[0]], name);
+    } else {
+      App.showSearchPin([p[1], p[0]], name);
+    }
     box.className = 'search-results hidden';
   };
-  item.querySelector('.sr-add').onclick = e => {
-    e.stopPropagation();
-    App.addManualAt(p[1], p[0], name);
-    box.className = 'search-results hidden';
-  };
+  if (!recordId) {
+    item.querySelector('.sr-add').onclick = e => {
+      e.stopPropagation();
+      App.addManualAt(p[1], p[0], name);
+      box.className = 'search-results hidden';
+    };
+  }
   const st = box.querySelector('.sr-status');
   if (st) box.insertBefore(item, st); else box.appendChild(item);
 }

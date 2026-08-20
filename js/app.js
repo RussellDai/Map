@@ -19,9 +19,9 @@ function centerIcon(cfg) {
   });
 }
 function houseIcon(level) {
-  /* 底色保持绿色不变，分级用右上角小徽标表示 */
+  /* 底色保持绿色不变，分级用右上角表情符号徽标表示（不用背景色） */
   return L.divIcon({ className: 'house-pin-wrap',
-    html: '<div class="house-pin">🏠' + (level ? '<i class="pin-lv pin-lv-' + level + '"></i>' : '') + '</div>',
+    html: '<div class="house-pin">🏠' + (level ? '<i class="pin-lv">' + (LV_ICON[level] || '') + '</i>' : '') + '</div>',
     iconSize: [0, 0] });
 }
 

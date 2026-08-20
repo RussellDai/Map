@@ -20,6 +20,8 @@ function escHtml(s) {
 function truncate(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; }
 
 /* ---- 分级与街景 ---- */
+/* 分级统一用「表情符号 + 描边」区分，不使用背景色填充 */
+const LV_ICON = { focus: '🔴', backup: '🔵', exclude: '⚫' };
 function levelOf(c) { return CONFIG.levels.find(l => l.key === (c && c.level)); }
 function openStreetView(c) {
   if (!c || !isFinite(+c.lat) || !isFinite(+c.lng)) { toast('该小区缺少有效坐标', 'error'); return; }
@@ -58,7 +60,7 @@ function openAerialVideo(c) {
 function tooltipHTML(c) {
   let h = '<div class="tip-name">' + escHtml(c.name) + '</div>';
   const lv = levelOf(c);
-  if (lv) h += '<div class="tip-row"><span class="lv-badge lv-' + lv.key + '">' + lv.name + '</span></div>';
+  if (lv) h += '<div class="tip-row"><span class="lv-badge lv-' + lv.key + '">' + (LV_ICON[lv.key] || '') + ' ' + lv.name + '</span></div>';
   if (hasInfo(c)) {
     if (c.price) {
       h += '<div class="tip-row">💰 单价 <b>' + escHtml(c.price) + '</b> 元/㎡' +
@@ -80,7 +82,6 @@ function openEditor(id) {
   if (!c) return;
   const div = document.createElement('div');
   div.className = 'editor';
-  const LV_ICON = { focus: '🔴', backup: '🔵', exclude: '⚫' };
   const lvBtns = CONFIG.levels.map(l =>
     '<button type="button" data-lv="' + l.key + '">' + (LV_ICON[l.key] || '') + ' ' + l.name + '</button>').join('');
   div.innerHTML =
@@ -225,10 +226,10 @@ function renderSidebar() {
     }).join('');
     const lvDots = CONFIG.levels.map(l =>
       '<button class="lv-dot lv-dot-' + l.key + (c.level === l.key ? ' active' : '') +
-      '" data-act="lv" data-lv="' + l.key + '" title="设为「' + l.name + '」（再点一次取消）"></button>').join('');
+      '" data-act="lv" data-lv="' + l.key + '" title="设为「' + l.name + '」（再点一次取消）">' + (LV_ICON[l.key] || '') + '</button>').join('');
     card.innerHTML =
       '<div class="card-head"><span class="card-name">' +
-      (lv ? '<span class="lv-badge lv-' + lv.key + '">' + lv.name + '</span>' : '') +
+      (lv ? '<span class="lv-badge lv-' + lv.key + '">' + (LV_ICON[lv.key] || '') + ' ' + lv.name + '</span>' : '') +
       escHtml(c.name) + '</span>' +
       '<span class="card-price">' + (c.price ? escHtml(c.price) + '元/㎡' : '') + '</span></div>' +
       '<div class="card-badges">' + badges + '</div>' +

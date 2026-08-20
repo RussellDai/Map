@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>常州购房地图 · 遥观13km / 金坛37km</title>
+<title>常州购房地图 · 生活圈与购房规划</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
-<link rel="stylesheet" href="css/style.css?v=7">
+<link rel="stylesheet" href="css/style.css?v=13">
 </head>
 <body>
 <header id="topbar">
@@ -28,13 +28,12 @@
   <aside id="sidebar">
     <div class="sidebar-head">
       <h2>我的小区清单 <span id="countBadge">0</span></h2>
+    <button id="sidebarToggle" class="btn small" title="收起/展开清单">▾</button>
       <button id="circleSettingsBtn" class="btn small" title="自定义圆心位置与半径">⚙ 圆圈设置</button>
     </div>
     <div id="circleSettings" class="circle-settings hidden"></div>
     <div class="filters">
-      <label><input type="checkbox" id="fltBoth"> 两圈交集</label>
-      <label><input type="checkbox" id="fltYaoguan"> 遥观13km内</label>
-      <label><input type="checkbox" id="fltJintan"> 金坛37km内</label>
+      <span id="circleFilters"></span>
       <select id="fltLevel" title="按分级筛选">
         <option value="">全部等级</option>
         <option value="focus">🔴 重点关注</option>
@@ -51,36 +50,35 @@
         <span><span class="dot ring" style="border-color:#dc2626"></span>重点关注</span>
         <span><span class="dot ring" style="border-color:#2563eb"></span>备选</span>
         <span><span class="dot ring dash" style="border-color:#64748b"></span>排除</span>
-        <span><span class="dot" style="background:#2563eb"></span>遥观13km</span>
-        <span><span class="dot" style="background:#ea580c"></span>金坛37km</span>
+        <span id="legendCircles"></span>
       </div>
-      <p class="tip">💡 悬停看信息，点击填写；分级不改底色（红圈=重点关注 / 蓝圈=备选 / 灰虚圈=排除）；🌐 街景、🏙 3D实景；圆心图钉可拖拽微调。</p>
+      <p class="tip">💡 悬停看信息，点击填写；🧭 路线导航规划两点驾车路线；⚙ 圆圈设置可增删圆圈、改名改半径、拖拽圆心；分级不改底色（红圈=重点关注 / 蓝圈=备选 / 灰虚圈=排除）；🌐 街景、🏙 3D实景。</p>
     </div>
   </aside>
-  <div id="map"></div>
-</div>
-
-<!-- 路线导航面板（路线模式下显示） -->
-<div id="routePanel" class="route-panel hidden">
-  <div class="route-title">🧭 路线导航 <span class="route-hint">点击地图或已有小区点设置起终点</span></div>
-  <div id="routeStatus" class="route-status">点击地图选择起点</div>
-  <div class="route-btns">
-    <button type="button" id="routeSwap" class="btn">⇄ 交换起终点</button>
-    <button type="button" id="routeClear" class="btn">🗑 清除路线</button>
-    <button type="button" id="routeExit" class="btn">✖ 退出导航</button>
+  <div id="map">
+    <!-- 路线导航面板（路线模式下显示；置于地图容器内，移动端自适应宽度） -->
+    <div id="routePanel" class="route-panel hidden">
+      <div class="route-title">🧭 路线导航 <span class="route-hint">点击地图或已有小区点设置起终点</span></div>
+      <div id="routeStatus" class="route-status">点击地图选择起点</div>
+      <div class="route-btns">
+        <button type="button" id="routeSwap" class="btn">⇄ 交换起终点</button>
+        <button type="button" id="routeClear" class="btn">🗑 清除路线</button>
+        <button type="button" id="routeExit" class="btn">✖ 退出导航</button>
+      </div>
+    </div>
   </div>
 </div>
 <div id="statusBar" class="hidden"></div>
 <div id="toast" class="hidden"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>window.L||document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')</script>
-<script src="js/gcoord.js?v=12"></script>
-<script src="js/config.js?v=12"></script>
-<script src="js/store.js?v=12"></script>
-<script src="js/overpass.js?v=12"></script>
-<script src="js/ui.js?v=12"></script>
-<script src="js/amap3d.js?v=12"></script>
-<script src="js/route.js?v=12"></script>
-<script src="js/app.js?v=12"></script>
+<script src="js/gcoord.js?v=13"></script>
+<script src="js/config.js?v=13"></script>
+<script src="js/store.js?v=13"></script>
+<script src="js/overpass.js?v=13"></script>
+<script src="js/ui.js?v=13"></script>
+<script src="js/amap3d.js?v=13"></script>
+<script src="js/route.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>

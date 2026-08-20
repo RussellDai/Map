@@ -1,6 +1,14 @@
 /* ===== store.js: 本地持久化（localStorage）与通用工具 ===== */
+/* 默认生活圈种子数据（首次使用 /「恢复默认两圈」） */
+function defaultCircles() {
+  return CONFIG.centers.map(cfg => {
+    const p = GC.wgs84ToGcj02(cfg.wgs84[0], cfg.wgs84[1]);
+    return { key: cfg.key, name: cfg.name, color: cfg.color, radius: cfg.radius, lat: p[1], lng: p[0], builtin: true };
+  });
+}
+
 const Store = {
-  data: { communities: {}, centerOverrides: {} },
+  data: { communities: {}, circles: null, centerOverrides: {} },
 
   load() {
     try {
@@ -13,6 +21,20 @@ const Store = {
     if (!this.data.centerOverrides) this.data.centerOverrides = {};
     if (!this.data.radiusOverrides) this.data.radiusOverrides = {};
     if (!this.data.communities) this.data.communities = {};
+    /* 圆圈数据迁移：旧版只有 centerOverrides/radiusOverrides，升级为统一的 circles 数组。
+       仅当 circles 键缺失时才迁移；空数组是用户主动删除全部圆圈的结果，予以保留。 */
+    if (!Array.isArray(this.data.circles)) {
+      const seeded = defaultCircles();
+      seeded.forEach(rec => {
+        const ov = this.data.centerOverrides && this.data.centerOverrides[rec.key];
+        if (Array.isArray(ov) && isFinite(ov[0]) && isFinite(ov[1])) { rec.lat = ov[0]; rec.lng = ov[1]; }
+        const r = this.data.radiusOverrides && this.data.radiusOverrides[rec.key];
+        if (isFinite(+r) && +r > 0) rec.radius = (+r) * 1000;
+      });
+      this.data.circles = seeded;
+    }
+    this.data.circles = this.data.circles.filter(c =>
+      c && c.key && c.name && isFinite(+c.lat) && isFinite(+c.lng) && isFinite(+c.radius) && +c.radius > 0);
   },
   save() {
     try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); return true; }

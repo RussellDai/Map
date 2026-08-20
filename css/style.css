@@ -1,10 +1,11 @@
 /* ===== style.css ===== */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; overflow: hidden; }
+body { display: flex; flex-direction: column; }
 .hidden { display: none !important; }
 
 /* 顶栏 */
-#topbar { height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+#topbar { height: 52px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 14px;
   background: #1e293b; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.25); position: relative; z-index: 1001; }
 .brand { font-size: 17px; font-weight: 700; white-space: nowrap; }
 .search-box { position: relative; flex: 0 1 380px; display: flex; }
@@ -31,7 +32,7 @@ html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-s
 .btn.danger { background: #dc2626; }
 
 /* 布局 */
-#main { display: flex; height: calc(100% - 52px); }
+#main { display: flex; flex: 1; min-height: 0; }
 #sidebar { width: 330px; background: #f8fafc; border-right: 1px solid #e2e8f0;
   display: flex; flex-direction: column; z-index: 1000; }
 .sidebar-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px 8px; }
@@ -180,9 +181,9 @@ html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-s
   box-shadow: 0 2px 8px rgba(0,0,0,.5); }
 
 /* ===== 两点路线导航 ===== */
-.route-panel { position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
+.route-panel { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
   background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
-  padding: 10px 14px; z-index: 1500; min-width: 340px; max-width: 92vw; font-size: 13px; color: #0f172a; }
+  padding: 10px 14px; z-index: 1200; min-width: 340px; max-width: calc(100% - 16px); font-size: 13px; color: #0f172a; }
 .route-title { font-weight: 700; margin-bottom: 6px; }
 .route-hint { font-weight: 400; font-size: 11px; color: #94a3b8; }
 .route-status { background: #f8fafc; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;
@@ -208,4 +209,38 @@ html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-s
   font-size: 11px; padding: 3px 6px; cursor: pointer; white-space: nowrap; }
 .cs-reset:hover { background: #f1f5f9; }
 .cs-tip { color: #94a3b8; font-size: 11px; line-height: 1.6; }
+.cs-name-input { flex: 1; min-width: 64px; font-size: 12px; padding: 3px 6px;
+  border: 1px solid #cbd5e1; border-radius: 5px; color: #334155; background: #fff; outline: none; }
+.cs-name-input:focus { border-color: #2563eb; }
+.cs-km { font-size: 11px; color: #64748b; }
+.cs-del { border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 5px;
+  font-size: 11px; padding: 3px 6px; cursor: pointer; }
+.cs-del:hover { background: #fef2f2; }
+.cs-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+#sidebarToggle { display: none; }
+
+/* ===== 移动端适配（≤768px）===== */
+@media (max-width: 768px) {
+  #topbar { height: auto; flex-wrap: wrap; padding: 6px 8px; gap: 6px; }
+  .brand { font-size: 14px; }
+  .search-box { flex: 1 1 100%; order: 3; }   /* 搜索框独占第二行 */
+  .actions { margin-left: 0; flex-wrap: wrap; gap: 6px; }
+  .btn { padding: 6px 9px; font-size: 12px; }
+  /* 上下布局：地图在上，清单在下（可收起） */
+  #main { flex-direction: column; }
+  #map { order: 1; }
+  #sidebar { order: 2; width: 100%; height: 44%; border-right: none; border-top: 1px solid #e2e8f0; }
+  #sidebar.collapsed { height: auto; }
+  #sidebar.collapsed .community-list, #sidebar.collapsed .filters,
+  #sidebar.collapsed .sidebar-foot, #sidebar.collapsed .circle-settings { display: none; }
+  #sidebarToggle { display: inline-block; }
+  .sidebar-head { padding: 8px 10px 6px; }
+  .sidebar-head h2 { font-size: 14px; }
+  .filters { padding: 6px 10px; }
+  /* 路线面板避开左上角缩放控件，占满地图宽度 */
+  .route-panel { left: 46px; right: 8px; transform: none; min-width: 0; top: 8px; max-width: none; }
+  #toast { top: auto; bottom: 12px; }
+  .cs-row { flex-wrap: wrap; }
+  .amap3d-box { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+}
 

@@ -87,7 +87,9 @@ function openEditor(id) {
     '  <button class="btn danger" id="f-del">🗑 删除</button>' +
     '  <button class="btn" id="f-cancel">关闭</button>' +
     '</div>';
-  const popup = L.popup({ maxWidth: 360, minWidth: 300, className: 'editor-popup' })
+  /* 手机端适当缩小编辑弹窗，避免超出屏幕 */
+  const small = window.matchMedia('(max-width: 768px)').matches;
+  const popup = L.popup({ maxWidth: small ? 300 : 360, minWidth: small ? 220 : 300, className: 'editor-popup' })
     .setLatLng([c.lat, c.lng]).setContent(div);
   App.map.openPopup(popup);
   L.DomEvent.disableClickPropagation(div);
@@ -157,7 +159,11 @@ function openEditor(id) {
 function renderSidebar() {
   const list = $('communityList');
   list.innerHTML = '';
-  const fB = $('fltBoth').checked, fY = $('fltYaoguan').checked, fJ = $('fltJintan').checked;
+  const fAll = $('fltAll') && $('fltAll').checked;
+  const checkedKeys = Object.keys(App.centers).filter(k => {
+    const el = $('fltC-' + k);
+    return el && el.checked;
+  });
   const fLv = $('fltLevel').value;
   let items = Store.all();
   if (fLv === 'none') items = items.filter(c => !c.level);
@@ -171,13 +177,8 @@ function renderSidebar() {
     return { c: c, d: d };
   });
   const filtered = withDist.filter(x => {
-    const inMap = {};
-    Object.values(App.centers).forEach(ct => {
-      inMap[ct.cfg.key] = x.d[ct.cfg.key] <= ct.cfg.radius / 1000;
-    });
-    if (fB) return Object.values(inMap).every(v => v);
-    if (fY) return inMap.yaoguan;
-    if (fJ) return inMap.jintan;
+    if (fAll) return Object.values(App.centers).every(ct => x.d[ct.cfg.key] <= ct.cfg.radius / 1000);
+    if (checkedKeys.length) return checkedKeys.some(k => x.d[k] <= App.centers[k].cfg.radius / 1000);
     return true;
   });
   $('countBadge').textContent = items.length;
@@ -452,6 +453,8 @@ function importData(file) {
           (bad ? '，跳过无效 ' + bad + ' 条' : '') + '），继续？')) return;
       Store.data = {
         communities: communities,
+        /* 新版导出含 circles 数组则原样恢复；旧文件缺失时置 null，由 Store.load() 迁移生成 */
+        circles: (d && Array.isArray(d.circles)) ? d.circles : null,
         centerOverrides: (d && d.centerOverrides) || {},
         radiusOverrides: (d && d.radiusOverrides) || {}
       };
@@ -476,38 +479,118 @@ function importData(file) {
   fr.readAsText(file, 'utf-8');
 }
 
-/* ---- 圆圈设置（自定义圆心位置与半径） ---- */
+/* ---- 动态圆圈筛选复选框 + 图例（圆圈增删改后调用） ---- */
+function renderCircleFilters() {
+  const wrap = $('circleFilters');
+  if (!wrap) return;
+  /* 保留用户已勾选状态，避免改半径等操作重置筛选 */
+  const prev = {};
+  wrap.querySelectorAll('input[type=checkbox]').forEach(i => { prev[i.id] = i.checked; });
+  wrap.innerHTML = '';
+  const keys = Object.keys(App.centers);
+  const mkLabel = (id, text) => {
+    const lab = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = id;
+    cb.checked = !!prev[id];
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' ' + text));
+    wrap.appendChild(lab);
+    return cb;
+  };
+  if (keys.length >= 2) {
+    const all = mkLabel('fltAll', '所有圈交集');
+    all.onchange = () => {
+      if (all.checked) keys.forEach(k => { const el = $('fltC-' + k); if (el) el.checked = false; });
+      renderSidebar();
+    };
+  }
+  keys.forEach(k => {
+    const ct = App.centers[k];
+    const cb = mkLabel('fltC-' + k, ct.cfg.name + ' ' + (ct.cfg.radius / 1000) + 'km内');
+    cb.onchange = () => {
+      if (cb.checked && $('fltAll')) $('fltAll').checked = false;
+      renderSidebar();
+    };
+  });
+  renderLegend();
+}
+
+function renderLegend() {
+  const el = $('legendCircles');
+  if (!el) return;
+  el.innerHTML = Object.values(App.centers).map(ct =>
+    '<span><span class="dot" style="background:' + ct.cfg.color + '"></span>' + escHtml(ct.cfg.name) + '</span>'
+  ).join('');
+}
+
+/* ---- 圆圈设置（完整管理：添加/删除圆圈、改名、改半径；圆心在地图上拖拽） ---- */
 function renderCircleSettings() {
   const box = $('circleSettings');
   box.innerHTML = '';
-  CONFIG.centers.forEach(cfgRaw => {
-    const ct = App.centers[cfgRaw.key];
-    const km = (ct ? ct.cfg.radius : cfgRaw.radius) / 1000;
+  Store.data.circles.forEach(rec => {
     const row = document.createElement('div');
     row.className = 'cs-row';
-    row.innerHTML =
-      '<span class="cs-dot" style="background:' + cfgRaw.color + '"></span>' +
-      '<span class="cs-name" title="' + escHtml(cfgRaw.name) + '">' + escHtml(cfgRaw.name) + '</span>' +
-      '<input type="number" class="cs-radius" min="0.5" max="200" step="0.5" value="' + km + '"> km' +
-      '<button type="button" class="cs-reset" title="恢复默认圆心与默认半径">恢复默认</button>';
-    row.querySelector('.cs-radius').onchange = e => {
-      const v = parseFloat(e.target.value);
-      if (!isFinite(v) || v <= 0) { toast('请输入有效半径（公里）', 'error'); e.target.value = km; return; }
-      App.setRadius(cfgRaw.key, Math.round(v * 10) / 10);
+    const dot = document.createElement('span');
+    dot.className = 'cs-dot';
+    dot.style.background = rec.color;
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'cs-name-input';
+    nameInput.maxLength = 12;
+    nameInput.value = rec.name;
+    nameInput.title = '圆圈名称（回车或失焦生效）';
+    nameInput.onchange = () => {
+      const v = nameInput.value.trim();
+      if (v && v !== rec.name) App.renameCircle(rec.key, v);
+      else nameInput.value = rec.name;
     };
-    row.querySelector('.cs-reset').onclick = () => {
-      if (!confirm('将「' + cfgRaw.name + '」恢复为默认圆心与默认半径（' +
-        cfgRaw.radius / 1000 + ' km），页面将刷新，继续？')) return;
-      delete Store.data.centerOverrides[cfgRaw.key];
-      delete Store.data.radiusOverrides[cfgRaw.key];
-      Store.save();
-      location.reload();
+    const rInput = document.createElement('input');
+    rInput.type = 'number';
+    rInput.className = 'cs-radius';
+    rInput.min = '0.5'; rInput.max = '200'; rInput.step = '0.5';
+    rInput.value = rec.radius / 1000;
+    rInput.title = '半径（公里）';
+    rInput.onchange = () => {
+      const v = parseFloat(rInput.value);
+      if (!isFinite(v) || v <= 0) { toast('请输入有效半径（公里）', 'error'); rInput.value = rec.radius / 1000; return; }
+      App.setRadius(rec.key, Math.round(v * 10) / 10);
     };
+    const km = document.createElement('span');
+    km.className = 'cs-km';
+    km.textContent = 'km';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'cs-del';
+    del.textContent = '✖';
+    del.title = '删除该圆圈';
+    del.onclick = () => App.removeCircle(rec.key);
+    row.appendChild(dot);
+    row.appendChild(nameInput);
+    row.appendChild(rInput);
+    row.appendChild(km);
+    row.appendChild(del);
     box.appendChild(row);
   });
+  const actions = document.createElement('div');
+  actions.className = 'cs-actions';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'btn small primary';
+  addBtn.textContent = '＋ 添加圆圈';
+  addBtn.onclick = () => App.addCircle();
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'btn small';
+  resetBtn.textContent = '恢复默认两圈';
+  resetBtn.onclick = () => App.resetCircles();
+  actions.appendChild(addBtn);
+  actions.appendChild(resetBtn);
+  box.appendChild(actions);
   const tip = document.createElement('div');
   tip.className = 'cs-tip';
-  tip.textContent = '💡 在地图上拖动圆心图钉即可自定义圆心位置；半径修改即时生效并自动保存。';
+  tip.textContent = '💡 在地图上拖动圆心图钉即可自定义圆心位置；新圆圈默认出现在当前视野中心；名称/半径修改即时生效并自动保存。';
   box.appendChild(tip);
 }
 

@@ -242,5 +242,21 @@ body { display: flex; flex-direction: column; }
   #toast { top: auto; bottom: 12px; }
   .cs-row { flex-wrap: wrap; }
   .amap3d-box { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .sync-panel { top: auto; bottom: 12px; right: 8px; left: 8px; width: auto; max-height: 70vh; overflow: auto; }
 }
+
+/* ===== 账号同步面板 ===== */
+.sync-panel { position: fixed; top: 60px; right: 10px; z-index: 2100; width: min(360px, 94vw);
+  background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  padding: 12px 14px; font-size: 13px; color: #0f172a; }
+.sync-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sync-guide { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.7; color: #475569; margin-bottom: 8px; }
+.sync-panel label { display: block; font-size: 12px; color: #475569; margin-bottom: 6px; }
+.sync-panel label input { display: block; width: 100%; margin-top: 2px; padding: 6px 8px;
+  border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; outline: none; }
+.sync-panel label input:focus { border-color: #2563eb; }
+.sync-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.sync-tip { margin-top: 8px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
+.sync-me { margin-bottom: 8px; font-size: 13px; }
 

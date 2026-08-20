@@ -6,7 +6,7 @@
 <title>常州购房地图 · 生活圈与购房规划</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
-<link rel="stylesheet" href="css/style.css?v=14">
+<link rel="stylesheet" href="css/style.css?v=15">
 </head>
 <body>
 <header id="topbar">
@@ -19,6 +19,7 @@
   <div class="actions">
     <button id="addModeBtn" class="btn" title="开启后点击地图任意位置手动添加小区">➕ 手动标记小区</button>
     <button id="routeBtn" class="btn" title="依次点击地图（或已有小区点）选择起点和终点，规划驾车路线">🧭 路线导航</button>
+    <button id="syncBtn" class="btn" title="注册/登录账号，跨设备自动同步清单与圆圈">☁ 同步</button>
     <button id="exportBtn" class="btn" title="导出已保存的小区信息与圆心位置">⬇ 导出</button>
     <button id="importBtn" class="btn" title="从 JSON 文件恢复数据">⬆ 导入</button>
     <input type="file" id="importFile" accept=".json,application/json" class="hidden">
@@ -69,16 +70,18 @@
   </div>
 </div>
 <div id="statusBar" class="hidden"></div>
+<div id="syncPanel" class="sync-panel hidden"></div>
 <div id="toast" class="hidden"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>window.L||document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')</script>
-<script src="js/gcoord.js?v=14"></script>
-<script src="js/config.js?v=14"></script>
-<script src="js/store.js?v=14"></script>
-<script src="js/overpass.js?v=14"></script>
-<script src="js/ui.js?v=14"></script>
-<script src="js/amap3d.js?v=14"></script>
-<script src="js/route.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/gcoord.js?v=15"></script>
+<script src="js/config.js?v=15"></script>
+<script src="js/store.js?v=15"></script>
+<script src="js/overpass.js?v=15"></script>
+<script src="js/ui.js?v=15"></script>
+<script src="js/amap3d.js?v=15"></script>
+<script src="js/route.js?v=15"></script>
+<script src="js/sync.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
 </body>
 </html>

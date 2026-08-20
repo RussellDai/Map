@@ -14,8 +14,17 @@ const Store = {
     if (!this.data.communities) this.data.communities = {};
   },
   save() {
-    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); }
-    catch (e) { console.warn('保存失败（localStorage 已满或被禁用）', e); }
+    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); return true; }
+    catch (e) { console.warn('保存失败（localStorage 已满或被禁用）', e); return false; }
+  },
+  /* 回读校验：确认数据真正写入（隐私/无痕模式、禁用存储的浏览器会静默丢失） */
+  verify() {
+    try {
+      const raw = localStorage.getItem(CONFIG.storageKey);
+      if (!raw) return 0;
+      const d = JSON.parse(raw);
+      return d && d.communities ? Object.keys(d.communities).length : 0;
+    } catch (e) { return 0; }
   },
   upsert(c) { this.data.communities[c.id] = c; this.save(); },
   remove(id) { delete this.data.communities[id]; this.save(); },

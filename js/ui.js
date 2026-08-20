@@ -182,7 +182,9 @@ function renderSidebar() {
   });
   $('countBadge').textContent = items.length;
   if (!filtered.length) {
-    list.innerHTML = '<div class="empty">暂无符合条件的小区。<br>放大地图自动加载周边小区，<br>或点「手动标记小区」添加。</div>';
+    list.innerHTML = items.length
+      ? '<div class="empty">共有 ' + items.length + ' 个小区，但都被当前筛选条件隐藏了。<br>请取消上方勾选/等级筛选后查看。</div>'
+      : '<div class="empty">还没有已保存的小区。<br>放大地图自动加载周边小区，<br>或点「➕ 手动标记小区」「⬆ 导入」添加。<br><small>数据保存在当前浏览器的本地存储中</small></div>';
     return;
   }
   filtered.forEach(x => {
@@ -450,9 +452,21 @@ function importData(file) {
           (bad ? '，跳过无效 ' + bad + ' 条' : '') + '），继续？')) return;
       Store.data = { communities: communities, centerOverrides: (d && d.centerOverrides) || {} };
       Store.save();
+      /* 立即回读校验，防止隐私模式/禁用存储导致静默丢失 */
+      const savedN = Store.verify();
+      if (savedN < ok) {
+        alert('⚠️ 导入未能保存！浏览器拒绝写入本地存储（常见于隐私/无痕模式或禁用了存储）。\n' +
+          '请改用普通浏览器窗口打开本页面后重新导入。');
+        return;
+      }
+      alert('✅ 已成功导入 ' + ok + ' 个小区，保存在当前浏览器的本地存储中。\n' +
+        '提示：数据只存在于这个浏览器里（换设备/换浏览器不会同步），可随时用「⬇ 导出」备份。');
       location.reload();
     } catch (e) {
-      toast(e.message === 'no-valid' ? '导入失败：文件中没有带有效坐标的小区' : '导入失败：文件格式不正确', 'error');
+      toast(e.message === 'no-valid'
+        ? '导入失败：文件中没有找到带有效坐标的小区（每条需含数字 lat/lng）'
+        : '导入失败：文件格式不对。支持本应用导出的 JSON（含 communities）或小区数组', 'error');
+      console.warn('导入失败详情：', e);
     }
   };
   fr.readAsText(file, 'utf-8');

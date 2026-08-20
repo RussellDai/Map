@@ -32,6 +32,7 @@ function initApp() {
   }
   if (App.map) return; /* 幂等保护：防止 DOMContentLoaded 多次触发导致重复初始化 */
   Store.load();
+  console.log('[存储诊断] 本站点本地已保存小区 ' + Store.all().length + ' 个，站点地址：' + location.origin);
   const map = L.map('map', { preferCanvas: true }).setView([31.71, 119.85], 10);
   App.map = map;
 

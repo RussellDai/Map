@@ -44,7 +44,7 @@ const CONFIG = {
 
   /* 高德 JS API 2.0（🏙 3D实景）：Web端 Key + 安全密钥，控制台 https://console.amap.com 管理 */
   amap: {
-    key: '8d2fe372f1fbf1c12f3105c865e4cbc49',
+    key: '8d2fe372f1fbf1c12f3105c865e4cbc4',
     securityJsCode: 'ceffc45862f2243f6d2cc55b81f0e41f'
   },
 

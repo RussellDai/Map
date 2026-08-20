@@ -5,20 +5,52 @@ const Amap3d = {
   _map: null,
   _watch: null,
 
+  /* 临时接管 console，捕获高德脚本自身打印的错误（Error key! / INVALID_USER_* 等），用于诊断展示 */
+  _hookConsole() {
+    if (this._unhook) return this._unhook;
+    this._capErrors = [];
+    const self = this;
+    const orig = { log: console.log, warn: console.warn, error: console.error };
+    const wrap = fn => function (...args) {
+      try {
+        const msg = args.map(a => (a && a.message) ? a.message : String(a)).join(' ');
+        if (/AMap|JSAPI|key|domain|scode|plat|密钥/i.test(msg) && self._capErrors.length < 5) self._capErrors.push(msg);
+      } catch (e) { /* 忽略 */ }
+      return fn.apply(console, args);
+    };
+    console.log = wrap(orig.log); console.warn = wrap(orig.warn); console.error = wrap(orig.error);
+    this._unhook = () => {
+      console.log = orig.log; console.warn = orig.warn; console.error = orig.error;
+      this._unhook = null;
+    };
+    return this._unhook;
+  },
+
+  _capText() {
+    return (this._capErrors && this._capErrors.length)
+      ? '（高德报错：' + this._capErrors.join('；') + '）' : '';
+  },
+
   /* 加载高德 JS API 2.0（安全密钥必须在脚本加载前设置） */
   load() {
     if (this._AMap) return Promise.resolve(this._AMap);
     if (this._loading) return this._loading;
     window._AMapSecurityConfig = { securityJsCode: CONFIG.amap.securityJsCode };
+    const unhook = this._hookConsole();
     this._loading = new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + CONFIG.amap.key +
         '&plugin=AMap.ToolBar,AMap.ControlBar';
       s.onload = () => {
+        unhook();
         if (window.AMap) { this._AMap = window.AMap; resolve(window.AMap); }
-        else { this._loading = null; reject(new Error('脚本已加载但未初始化')); }
+        else {
+          this._loading = null;
+          reject(new Error('脚本已加载但未初始化' + this._capText() +
+            '。Key 须为「Web端(JS API)」平台且复制完整（标准 32 位）'));
+        }
       };
-      s.onerror = () => { this._loading = null; reject(new Error('脚本加载失败，请检查网络')); };
+      s.onerror = () => { unhook(); this._loading = null; reject(new Error('脚本加载失败，请检查网络')); };
       document.head.appendChild(s);
     });
     return this._loading;
@@ -62,6 +94,7 @@ const Amap3d = {
     mask.addEventListener('click', e => { if (e.target === mask) this.close(); });
 
     /* 卫星影像 + 路网 + 3D 楼块，俯仰 62° 呈现实景感 */
+    this._hookConsole();  // 渲染期间继续捕获高德报错（域名白名单/安全密钥问题），供超时诊断展示
     let map;
     try {
       map = new AMap.Map('amap3dMap', {
@@ -109,7 +142,7 @@ const Amap3d = {
       if (!document.getElementById('amap3dMask')) return;
       const keyTail = '…' + CONFIG.amap.key.slice(-6);
       this._setStatus(mask,
-        '⚠️ 高德 3D 地图长时间未渲染。请按 F12 打开控制台，查看以「AMap JSAPI」或' +
+        '⚠️ 高德 3D 地图长时间未渲染。' + this._capText() + '请按 F12 打开控制台，查看以「AMap JSAPI」或' +
         ' INVALID_USER_KEY / INVALID_USER_SCODE / USERKEY_PLAT_NOMATCH 开头的报错，然后对照排查：<br>' +
         '① 控制台（console.amap.com）中 Key「' + escHtml(keyTail) + '」的服务类型必须是「Web端(JS API)」（不能是"Web服务"）<br>' +
         '② 安全密钥须与同一 Key 配对：Key 详情页「安全密钥」按钮查看，更新到 js/config.js 的 amap.securityJsCode<br>' +
@@ -121,6 +154,7 @@ const Amap3d = {
 
   close() {
     clearTimeout(this._watch);
+    if (this._unhook) this._unhook();
     if (this._map) { try { this._map.destroy(); } catch (e) { /* 忽略 */ } this._map = null; }
     const m = document.getElementById('amap3dMask');
     if (m) m.remove();

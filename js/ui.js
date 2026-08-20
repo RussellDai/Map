@@ -450,7 +450,11 @@ function importData(file) {
       if (!ok) throw new Error('no-valid');
       if (!confirm('导入将替换当前已保存的小区与圆心数据（有效 ' + ok + ' 条' +
           (bad ? '，跳过无效 ' + bad + ' 条' : '') + '），继续？')) return;
-      Store.data = { communities: communities, centerOverrides: (d && d.centerOverrides) || {} };
+      Store.data = {
+        communities: communities,
+        centerOverrides: (d && d.centerOverrides) || {},
+        radiusOverrides: (d && d.radiusOverrides) || {}
+      };
       Store.save();
       /* 立即回读校验，防止隐私模式/禁用存储导致静默丢失 */
       const savedN = Store.verify();

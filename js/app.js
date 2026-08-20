@@ -51,7 +51,11 @@ function initApp() {
   L.control.scale({ metric: true, imperial: false }).addTo(map);
 
   /* 两个生活圈圆圈 + 可拖拽圆心 */
-  CONFIG.centers.forEach(cfg => {
+  CONFIG.centers.forEach(cfgRaw => {
+    const cfg = Object.assign({}, cfgRaw);
+    /* 用户自定义半径（公里）优先于默认值 */
+    const ovR = Store.data.radiusOverrides && Store.data.radiusOverrides[cfg.key];
+    if (isFinite(+ovR) && +ovR > 0) cfg.radius = (+ovR) * 1000;
     const ov = Store.data.centerOverrides[cfg.key];
     let ll;
     if (ov) ll = L.latLng(ov[0], ov[1]);
@@ -65,10 +69,16 @@ function initApp() {
     }).addTo(map);
     circle.bindTooltip(cfg.name + ' · ' + (cfg.radius / 1000) + '公里生活圈', { sticky: true });
     /* 圆圈默认拦截点击（bubblingMouseEvents:false）；添加模式下转发为放置新标记，否则圈内无法手动标记 */
-    circle.on('click', e => { if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区'); });
+    circle.on('click', e => {
+      if (Route.mode) { Route.assign(e.latlng); return; }
+      if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区');
+    });
     const marker = L.marker(ll, { draggable: true, icon: centerIcon(cfg), zIndexOffset: 1000 }).addTo(map);
     marker.bindTooltip('拖动可微调「' + cfg.name + '」圆心位置', { direction: 'top' });
-    marker.on('click', e => { if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区'); });
+    marker.on('click', e => {
+      if (Route.mode) { Route.assign(e.latlng); return; }
+      if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区');
+    });
     marker.on('dragend', () => {
       const p = marker.getLatLng();
       circle.setLatLng(p);
@@ -98,8 +108,11 @@ function initApp() {
   });
   if (badRec) toast('⚠️ 有 ' + badRec + ' 条小区数据坐标无效已跳过，可导出检查后重新导入', 'error');
 
-  /* 点击地图 = 手动添加（仅在添加模式下） */
-  map.on('click', e => { if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区'); });
+  /* 点击地图：路线模式优先设置起终点；否则手动添加（仅在添加模式下） */
+  map.on('click', e => {
+    if (Route.mode) { Route.assign(e.latlng); return; }
+    if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区');
+  });
 
   /* 视野移动后自动加载小区 */
   map.on('moveend', debounce(() => Overpass.loadInView(), 600));
@@ -107,6 +120,11 @@ function initApp() {
 
   /* 顶栏按钮绑定 */
   $('addModeBtn').onclick = () => App.setAddMode(!App.addMode);
+  $('routeBtn').onclick = () => Route.setMode(!Route.mode);
+  $('routeSwap').onclick = () => Route.swap();
+  $('routeClear').onclick = () => Route.clear();
+  $('routeExit').onclick = () => Route.setMode(false);
+  $('circleSettingsBtn').onclick = toggleCircleSettings;
   $('searchBtn').onclick = doSearch;
   $('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
   $('searchInput').addEventListener('input', debounce(liveLocalSearch, 250));
@@ -131,7 +149,23 @@ function initApp() {
   renderSidebar();
 }
 
+/* 设置圆圈半径（公里）：同步圆圈/图钉标签/tooltip/侧栏距离徽标，并持久化 */
+App.setRadius = function (key, km) {
+  const ct = App.centers[key];
+  if (!ct || !isFinite(km) || km <= 0) return;
+  ct.cfg.radius = km * 1000;
+  if (!Store.data.radiusOverrides) Store.data.radiusOverrides = {};
+  Store.data.radiusOverrides[key] = km;
+  Store.save();
+  ct.circle.setRadius(km * 1000);
+  ct.marker.setIcon(centerIcon(ct.cfg));
+  ct.circle.setTooltipContent(ct.cfg.name + ' · ' + km + '公里生活圈');
+  renderSidebar();
+  toast('「' + ct.cfg.name + '」半径已更新为 ' + km + ' km');
+};
+
 App.setAddMode = function (on) {
+  if (on && Route.mode) Route.setMode(false);
   App.addMode = on;
   $('addModeBtn').classList.toggle('active', on);
   $('addModeBtn').textContent = on ? '🎯 点击地图放置小区（再按一次取消）' : '➕ 手动标记小区';
@@ -161,6 +195,8 @@ App.addCommunityMarker = function (c) {
   layer.bindTooltip(() => tooltipHTML(App.records.get(c.id) || c),
     { sticky: true, direction: 'top', offset: [0, -8] });
   layer.on('click', e => {
+    /* 路线模式下点击 = 设为起点/终点 */
+    if (Route.mode && e.latlng) { Route.assign(e.latlng); return; }
     /* 添加模式下点击已有点 = 在其位置放新标记（已有点不冒泡到地图，否则会被吞掉） */
     if (App.addMode && e.latlng) { App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区'); return; }
     openEditor(c.id);

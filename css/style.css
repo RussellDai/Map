@@ -179,3 +179,33 @@ html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-s
   display: flex; align-items: center; justify-content: center; font-size: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,.5); }
 
+/* ===== 两点路线导航 ===== */
+.route-panel { position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
+  background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  padding: 10px 14px; z-index: 1500; min-width: 340px; max-width: 92vw; font-size: 13px; color: #0f172a; }
+.route-title { font-weight: 700; margin-bottom: 6px; }
+.route-hint { font-weight: 400; font-size: 11px; color: #94a3b8; }
+.route-status { background: #f8fafc; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;
+  color: #334155; line-height: 1.6; }
+.route-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.route-btns .btn { padding: 5px 10px; font-size: 12px; }
+.route-pin { transform: translate(-50%, -100%); padding: 3px 9px; border-radius: 12px; color: #fff;
+  font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.route-from { background: #16a34a; }
+.route-to { background: #dc2626; }
+
+/* ===== 圆圈设置（自定义圆心与半径） ===== */
+.btn.small { padding: 4px 9px; font-size: 12px; }
+.circle-settings { padding: 8px 14px 10px; border-bottom: 1px dashed #e2e8f0;
+  background: #fff; font-size: 12px; }
+.cs-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: #334155; }
+.cs-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.cs-name { flex: 1; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-radius { width: 66px; border: 1px solid #cbd5e1; border-radius: 5px; padding: 3px 6px;
+  font-size: 12px; outline: none; }
+.cs-radius:focus { border-color: #2563eb; }
+.cs-reset { border: 1px solid #cbd5e1; background: #fff; color: #64748b; border-radius: 5px;
+  font-size: 11px; padding: 3px 6px; cursor: pointer; white-space: nowrap; }
+.cs-reset:hover { background: #f1f5f9; }
+.cs-tip { color: #94a3b8; font-size: 11px; line-height: 1.6; }
+

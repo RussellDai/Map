@@ -472,3 +472,45 @@ function importData(file) {
   fr.readAsText(file, 'utf-8');
 }
 
+/* ---- 圆圈设置（自定义圆心位置与半径） ---- */
+function renderCircleSettings() {
+  const box = $('circleSettings');
+  box.innerHTML = '';
+  CONFIG.centers.forEach(cfgRaw => {
+    const ct = App.centers[cfgRaw.key];
+    const km = (ct ? ct.cfg.radius : cfgRaw.radius) / 1000;
+    const row = document.createElement('div');
+    row.className = 'cs-row';
+    row.innerHTML =
+      '<span class="cs-dot" style="background:' + cfgRaw.color + '"></span>' +
+      '<span class="cs-name" title="' + escHtml(cfgRaw.name) + '">' + escHtml(cfgRaw.name) + '</span>' +
+      '<input type="number" class="cs-radius" min="0.5" max="200" step="0.5" value="' + km + '"> km' +
+      '<button type="button" class="cs-reset" title="恢复默认圆心与默认半径">恢复默认</button>';
+    row.querySelector('.cs-radius').onchange = e => {
+      const v = parseFloat(e.target.value);
+      if (!isFinite(v) || v <= 0) { toast('请输入有效半径（公里）', 'error'); e.target.value = km; return; }
+      App.setRadius(cfgRaw.key, Math.round(v * 10) / 10);
+    };
+    row.querySelector('.cs-reset').onclick = () => {
+      if (!confirm('将「' + cfgRaw.name + '」恢复为默认圆心与默认半径（' +
+        cfgRaw.radius / 1000 + ' km），页面将刷新，继续？')) return;
+      delete Store.data.centerOverrides[cfgRaw.key];
+      delete Store.data.radiusOverrides[cfgRaw.key];
+      Store.save();
+      location.reload();
+    };
+    box.appendChild(row);
+  });
+  const tip = document.createElement('div');
+  tip.className = 'cs-tip';
+  tip.textContent = '💡 在地图上拖动圆心图钉即可自定义圆心位置；半径修改即时生效并自动保存。';
+  box.appendChild(tip);
+}
+
+function toggleCircleSettings() {
+  const box = $('circleSettings');
+  const willOpen = box.classList.contains('hidden');
+  if (willOpen) renderCircleSettings();
+  box.className = 'circle-settings' + (willOpen ? '' : ' hidden');
+}
+

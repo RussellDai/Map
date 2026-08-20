@@ -11,6 +11,7 @@ const Store = {
       }
     } catch (e) { console.warn('读取本地数据失败', e); }
     if (!this.data.centerOverrides) this.data.centerOverrides = {};
+    if (!this.data.radiusOverrides) this.data.radiusOverrides = {};
     if (!this.data.communities) this.data.communities = {};
   },
   save() {

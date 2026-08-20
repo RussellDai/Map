@@ -14,15 +14,40 @@ Sync.loadSession = function () {
 function b64e(s) { return btoa(unescape(encodeURIComponent(s))); }
 function b64d(s) { return decodeURIComponent(escape(atob(s))); }
 
-/* 统一请求封装：Gitee 用 query 传令牌，GitHub 用 Authorization 头 */
+/* 统一请求封装：Gitee 用 query 传令牌 + 表单正文，GitHub 用 Authorization 头 + JSON 正文。
+   响应统一做“安全 JSON 解析”：空正文 / HTML 错误页都不会再导致 JSON 解析崩溃。 */
 function apiCall(url, method, token, body) {
   const isGitee = url.indexOf('gitee.com') >= 0;
   const headers = { Accept: 'application/json' };
   if (!isGitee && token) headers.Authorization = 'Bearer ' + token;
-  if (method && method !== 'GET') headers['Content-Type'] = 'application/json';
-  return fetch(url, { method: method || 'GET', headers: headers, body: body ? JSON.stringify(body) : undefined })
-    .then(r => r.json().then(j => {
-      if (!r.ok) throw new Error((j && (j.message || j.error)) || ('HTTP ' + r.status));
+  let payload;
+  if (body) {
+    if (isGitee) {
+      // Gitee v5 接口参数为 formData：用表单编码（同时避免 CORS 预检）
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      payload = Object.keys(body).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(body[k])).join('&');
+    } else {
+      headers['Content-Type'] = 'application/json';
+      payload = JSON.stringify(body);
+    }
+  }
+  return fetch(url, { method: method || 'GET', headers: headers, body: payload })
+    .then(r => r.text().then(text => {
+      let j = null;
+      if (text) {
+        try { j = JSON.parse(text); }
+        catch (e) {
+          j = { message: text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) };
+        }
+      }
+      if (!r.ok) {
+        let msg = (j && (j.message || j.error)) || '';
+        if (r.status === 401) msg = '令牌无效或已过期（401），请重新生成';
+        else if (r.status === 403 && !msg) msg = '权限不足（403），请检查令牌权限';
+        if (!msg) msg = 'HTTP ' + r.status;
+        const err = new Error(msg); err.status = r.status;
+        throw err;
+      }
       return j;
     }));
 }
@@ -36,23 +61,39 @@ const SyncProviders = {
       return apiCall(this.base + '/user?access_token=' + encodeURIComponent(token)).then(j => ({ username: j.login }));
     },
     ensureRepo(token, username) {
-      return apiCall(this.base + '/repos/' + username + '/house-map-sync?access_token=' + encodeURIComponent(token))
-        .catch(() => apiCall(this.base + '/user/repos', 'POST', token,
-          { access_token: token, name: 'house-map-sync', private: true, auto_init: true,
-            description: '常州买房地图同步数据（私有）' }));
+      const repoUrl = this.base + '/repos/' + username + '/house-map-sync?access_token=' + encodeURIComponent(token);
+      const get = () => apiCall(repoUrl);
+      return get().catch(e => {
+        if (e.status && e.status !== 404) throw e; // 401/403 等真实错误直接抛出
+        return apiCall(this.base + '/user/repos', 'POST', token,
+          { access_token: token, name: 'house-map-sync', private: 'true', auto_init: 'true',
+            description: '常州买房地图同步数据（私有）' })
+          .then(() => get()); // 创建后复查，确保仓库确实存在
+      });
     },
     find(token, username) {
       const u = this.base + '/repos/' + username + '/house-map-sync/contents/data.json?access_token=' + encodeURIComponent(token);
       return apiCall(u)
-        .then(j => ({ id: j.sha, doc: JSON.parse(b64d(j.content || '')) }))
-        .catch(e => (/404|not found/i.test(e.message) ? null : Promise.reject(e)));
+        .then(j => {
+          if (!j || !j.content) return null; // 空文件/异常结构视为“云端暂无数据”
+          let doc = null;
+          try { doc = JSON.parse(b64d(j.content)); } catch (e) { return null; }
+          return { id: j.sha, doc: doc };
+        })
+        .catch(e => (e.status === 404 || /404|not found/i.test(e.message) ? null : Promise.reject(e)));
     },
     save(token, username, id, doc) {
       const u = this.base + '/repos/' + username + '/house-map-sync/contents/data.json';
       const body = { access_token: token, content: b64e(JSON.stringify(doc)), message: 'sync ' + new Date().toISOString() };
       if (id) body.sha = id;
       return apiCall(u, id ? 'PUT' : 'POST', token, body)
-        .then(j => ({ id: (j.content && j.content.sha) || id }));
+        .then(j => {
+          const sha = j && j.content && j.content.sha;
+          if (sha) return { id: sha };
+          // 个别情况下响应正文为空：回查一次文件 sha
+          return apiCall(this.base + '/repos/' + username + '/house-map-sync/contents/data.json?access_token=' + encodeURIComponent(token))
+            .then(f => ({ id: (f && f.sha) || id }));
+        });
     }
   },
   github: {

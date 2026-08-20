@@ -257,4 +257,14 @@ body { display: flex; flex-direction: column; }
 .sync-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .sync-tip { margin-top: 8px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
 .sync-me { margin-bottom: 8px; font-size: 13px; }
+.sync-panel-title { font-weight: 700; margin-bottom: 8px; }
+.sync-opt { display: block; font-size: 13px; margin-bottom: 4px; cursor: pointer; }
+.sync-panel .sync-opt input { display: inline-block; width: auto; margin: 0 6px 0 0; vertical-align: -1px; }
+.sync-field { font-size: 12px; color: #475569; margin-bottom: 8px; }
+.sync-field input { display: block; width: 100%; margin-top: 4px; padding: 6px 8px;
+  border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; outline: none; }
+.sync-field input:focus { border-color: #2563eb; }
+.sync-status { font-size: 12px; color: #475569; margin-top: 6px; line-height: 1.6; }
+.sync-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.sync-guide a { color: #2563eb; }
 

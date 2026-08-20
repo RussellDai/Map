@@ -1,234 +1,290 @@
-/* ===== sync.js: 云端账号同步（LeanCloud REST，免 SDK） =====
-   流程：填写 LeanCloud 应用凭证（一次性）→ 注册/登录账号 →
-   登录时按时间戳自动双向对齐；之后本地每次保存自动推送云端。 */
-const Sync = {
-  session: null,     // {username, uid, token, objectId}
-  cfg: null,         // {server, appId, appKey}
-  localTs: 0,        // 本地数据时间戳
-  _pushTimer: null,
-  _busy: false,
-  _applying: false
+/* ===== sync.js：跨设备账号同步（Gitee / GitHub 私有仓库云存储，纯 REST） =====
+   - 默认推荐国内访问稳定的 Gitee；也支持 GitHub（已有 GitHub 账号可免注册）。
+   - 凭据：个人访问令牌（最小权限），只存浏览器本地 localStorage，不上传。
+   - 数据：私有仓库 / 私密 Gist 中的 data.json，内容 { ts, data }，按账号隔离。
+   - 自动同步：Store.save() 触发防抖自动推送；拉取覆盖时刷新页面。
+*/
+const Sync = { session: null, localTs: 0, _pushTimer: null, _busy: false, _applying: false, lastOk: 0 };
+
+Sync.loadSession = function () {
+  try { return JSON.parse(localStorage.getItem('cz-sync-session') || 'null'); } catch (e) { return null; }
 };
 
-Sync.loadCfg = function () {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem('cz-sync-cfg') || 'null'); } catch (e) { /* ignore */ }
-  const base = (window.CONFIG && CONFIG.sync) || {};
-  return {
-    server: (saved && saved.server) || base.server || '',
-    appId: (saved && saved.appId) || base.appId || '',
-    appKey: (saved && saved.appKey) || base.appKey || ''
-  };
+/* UTF-8 安全 base64（Gitee 接口要求内容 base64） */
+function b64e(s) { return btoa(unescape(encodeURIComponent(s))); }
+function b64d(s) { return decodeURIComponent(escape(atob(s))); }
+
+/* 统一请求封装：Gitee 用 query 传令牌，GitHub 用 Authorization 头 */
+function apiCall(url, method, token, body) {
+  const isGitee = url.indexOf('gitee.com') >= 0;
+  const headers = { Accept: 'application/json' };
+  if (!isGitee && token) headers.Authorization = 'Bearer ' + token;
+  if (method && method !== 'GET') headers['Content-Type'] = 'application/json';
+  return fetch(url, { method: method || 'GET', headers: headers, body: body ? JSON.stringify(body) : undefined })
+    .then(r => r.json().then(j => {
+      if (!r.ok) throw new Error((j && (j.message || j.error)) || ('HTTP ' + r.status));
+      return j;
+    }));
+}
+window.apiCall = apiCall;
+
+const SyncProviders = {
+  gitee: {
+    name: 'Gitee（国内推荐）',
+    base: 'https://gitee.com/api/v5',
+    user(token) {
+      return apiCall(this.base + '/user?access_token=' + encodeURIComponent(token)).then(j => ({ username: j.login }));
+    },
+    ensureRepo(token, username) {
+      return apiCall(this.base + '/repos/' + username + '/house-map-sync?access_token=' + encodeURIComponent(token))
+        .catch(() => apiCall(this.base + '/user/repos', 'POST', token,
+          { access_token: token, name: 'house-map-sync', private: true, auto_init: true,
+            description: '常州买房地图同步数据（私有）' }));
+    },
+    find(token, username) {
+      const u = this.base + '/repos/' + username + '/house-map-sync/contents/data.json?access_token=' + encodeURIComponent(token);
+      return apiCall(u)
+        .then(j => ({ id: j.sha, doc: JSON.parse(b64d(j.content || '')) }))
+        .catch(e => (/404|not found/i.test(e.message) ? null : Promise.reject(e)));
+    },
+    save(token, username, id, doc) {
+      const u = this.base + '/repos/' + username + '/house-map-sync/contents/data.json';
+      const body = { access_token: token, content: b64e(JSON.stringify(doc)), message: 'sync ' + new Date().toISOString() };
+      if (id) body.sha = id;
+      return apiCall(u, id ? 'PUT' : 'POST', token, body)
+        .then(j => ({ id: (j.content && j.content.sha) || id }));
+    }
+  },
+  github: {
+    name: 'GitHub',
+    base: 'https://api.github.com',
+    user(token) { return apiCall(this.base + '/user', 'GET', token).then(j => ({ username: j.login })); },
+    ensureRepo() { return Promise.resolve(); },
+    find(token) {
+      return apiCall(this.base + '/gists?per_page=100', 'GET', token).then(list => {
+        const g = (list || []).find(x => x.description === 'cz-house-map-sync');
+        if (!g) return null;
+        return apiCall(this.base + '/gists/' + g.id, 'GET', token).then(full => {
+          const f = full.files && full.files['data.json'];
+          if (!f || !f.content) return null;
+          return { id: g.id, doc: JSON.parse(f.content) };
+        });
+      });
+    },
+    save(token, username, id, doc) {
+      const body = { files: { 'data.json': { content: JSON.stringify(doc) } } };
+      if (id) return apiCall(this.base + '/gists/' + id, 'PATCH', token, body).then(() => ({ id: id }));
+      body.description = 'cz-house-map-sync';
+      body.public = false;
+      return apiCall(this.base + '/gists', 'POST', token, body).then(j => ({ id: j.id }));
+    }
+  }
 };
-Sync.cfgReady = function () {
-  return !!(Sync.cfg && Sync.cfg.server && Sync.cfg.appId && Sync.cfg.appKey);
+window.SyncProviders = SyncProviders;
+
+/* ---- 核心流程 ---- */
+Sync.start = function (providerKey, token, onDone, onError) {
+  const p = SyncProviders[providerKey];
+  if (!p) { onError && onError('未知服务'); return; }
+  p.user(token)
+    .then(info => p.ensureRepo(token, info.username).then(() => info))
+    .then(info => {
+      Sync.session = { provider: providerKey, token: token, username: info.username, docId: null };
+      localStorage.setItem('cz-sync-session', JSON.stringify(Sync.session));
+      return Sync.handshake();
+    })
+    .then(() => { onDone && onDone(); })
+    .catch(e => {
+      Sync.session = null;
+      localStorage.removeItem('cz-sync-session');
+      onError && onError(e.message || '连接失败');
+    });
 };
 
-/* ---- REST 封装 ---- */
-Sync.api = function (path, method, body) {
-  const cfg = Sync.cfg;
-  const headers = { 'X-LC-Id': cfg.appId, 'X-LC-Key': cfg.appKey, 'Content-Type': 'application/json' };
-  if (Sync.session && Sync.session.token) headers['X-LC-Session'] = Sync.session.token;
-  return fetch(cfg.server.replace(/\/+$/, '') + '/1.1/' + path, {
-    method: method,
-    headers: headers,
-    body: body ? JSON.stringify(body) : undefined
-  }).then(r => r.json().then(j => {
-    if (!r.ok || j.code) throw new Error(j.error || ('HTTP ' + r.status));
-    return j;
-  }));
-};
-
-/* ---- 注册 / 登录 ---- */
-Sync.signup = function (u, p) {
-  return Sync.api('users', 'POST', { username: u, password: p }).then(res => {
-    Sync.afterAuth(res);
-    toast('注册成功，已登录 ☁');
+Sync.handshake = function () {
+  const p = SyncProviders[Sync.session.provider];
+  return p.find(Sync.session.token, Sync.session.username).then(found => {
+    if (!found) return Sync._pushNow();
+    Sync.session.docId = found.id;
+    const cloud = found.doc || {};
+    if ((cloud.ts || 0) > Sync.localTs) return Sync._applyCloud(cloud);
+    return Sync._pushNow();
   });
 };
-Sync.login = function (u, p) {
-  return Sync.api('login', 'POST', { username: u, password: p }).then(res => {
-    Sync.afterAuth(res);
-    toast('登录成功 ☁');
+
+Sync._pushNow = function () {
+  const p = SyncProviders[Sync.session.provider];
+  const doc = { ts: Date.now(), data: Store.data };
+  return p.save(Sync.session.token, Sync.session.username, Sync.session.docId, doc).then(res => {
+    if (res && res.id) Sync.session.docId = res.id;
+    localStorage.setItem('cz-sync-session', JSON.stringify(Sync.session));
+    Sync.localTs = doc.ts;
+    Sync.lastOk = Date.now();
+    return true;
   });
 };
-Sync.afterAuth = function (res) {
-  Sync.session = { username: res.username, uid: res.objectId, token: res.sessionToken, objectId: null };
-  localStorage.setItem('cz-sync-session', JSON.stringify(Sync.session));
-  Sync.handshake();
+
+Sync._applyCloud = function (cloud) {
+  Sync._applying = true;
+  try {
+    const incoming = cloud.data || {};
+    Store.data.communities = incoming.communities || {};
+    Store.data.records = incoming.records || {};
+    if (incoming.circles !== undefined) Store.data.circles = incoming.circles;
+    Sync.localTs = cloud.ts || Date.now();
+    Store._persist();
+    localStorage.setItem('cz-sync-last-ok', String(Date.now()));
+    Sync.lastOk = Date.now();
+    setTimeout(function () { location.reload(); }, 300);
+  } finally { Sync._applying = false; }
+  return true;
 };
+
+Sync.pull = function () {
+  if (!Sync.session) return Promise.reject(new Error('请先登录'));
+  const p = SyncProviders[Sync.session.provider];
+  return p.find(Sync.session.token, Sync.session.username).then(found => {
+    if (!found) { toast('云端暂无数据', true); return false; }
+    Sync.session.docId = found.id;
+    const cloud = found.doc || {};
+    if ((cloud.ts || 0) <= Sync.localTs) { toast('云端没有更新的数据', true); return false; }
+    return Sync._applyCloud(cloud);
+  });
+};
+
+Sync.push = function () {
+  if (!Sync.session) return Promise.reject(new Error('请先登录'));
+  if (Sync._busy) return Promise.resolve(false);
+  Sync._busy = true;
+  return Sync._pushNow()
+    .then(() => { Sync._busy = false; toast('☁ 已推送到云端'); return true; })
+    .catch(e => { Sync._busy = false; throw e; });
+};
+
+/* 保存后自动推送（防抖 2.5s，拉取覆盖期间跳过） */
+Sync.schedulePush = function () {
+  if (!Sync.session || Sync._applying) return;
+  clearTimeout(Sync._pushTimer);
+  Sync._pushTimer = setTimeout(() => {
+    Sync.push().catch(e => console.warn('[sync] 自动推送失败：', e.message));
+  }, 2500);
+};
+
 Sync.logout = function () {
   Sync.session = null;
   localStorage.removeItem('cz-sync-session');
-  Sync.renderPanel();
-  toast('已退出同步账号（本地数据保留）');
 };
 
-/* ---- 登录后双向对齐：时间戳新者胜 ---- */
-Sync.handshake = async function () {
-  if (!Sync.cfgReady() || !Sync.session) return;
-  try {
-    const j = await Sync.api('classes/HouseMapSync?limit=1', 'GET');
-    const rec = j.results && j.results[0];
-    if (rec) {
-      Sync.session.objectId = rec.objectId;
-      if ((rec.ts || 0) > Sync.localTs) {
-        Sync.applyCloud(rec);
-        return; /* applyCloud 会刷新页面 */
-      }
-      await Sync.push();
-      toast('已同步到云端 ☁');
-    } else {
-      await Sync.push();
-      toast('本地数据已备份到云端 ☁');
-    }
-    Sync.renderPanel();
-  } catch (e) {
-    if (/210|211|invalid session/i.test(e.message)) { Sync.logout(); return; }
-    toast('同步失败：' + e.message, 'error');
-  }
-};
-Sync.applyCloud = function (rec) {
-  try {
-    const d = JSON.parse(rec.payload);
-    if (!d || !d.communities) throw new Error('bad');
-    Sync._applying = true;
-    Store.data = d;
-    if (!Array.isArray(Store.data.circles)) Store.data.circles = null;
-    Sync.localTs = rec.ts || Date.now();
-    localStorage.setItem('cz-sync-localts', String(Sync.localTs));
-    Store.save();
-    toast('已拉取云端最新数据，正在刷新…');
-    setTimeout(() => location.reload(), 600);
-  } catch (e) {
-    Sync._applying = false;
-    toast('云端数据格式异常，已跳过', 'error');
-  }
-};
 
-/* ---- 推送本地数据到云端 ---- */
-Sync.push = async function () {
-  if (!Sync.cfgReady() || !Sync.session || Sync._busy || Sync._applying) return;
-  Sync._busy = true;
-  try {
-    Sync.localTs = Date.now();
-    localStorage.setItem('cz-sync-localts', String(Sync.localTs));
-    const body = { payload: JSON.stringify(Store.data), ts: Sync.localTs };
-    if (Sync.session.objectId) {
-      await Sync.api('classes/HouseMapSync/' + Sync.session.objectId, 'PUT', body);
-    } else {
-      body.ACL = {};
-      body.ACL[Sync.session.uid] = { read: true, write: true };
-      const j = await Sync.api('classes/HouseMapSync', 'POST', body);
-      Sync.session.objectId = j.objectId;
-      localStorage.setItem('cz-sync-session', JSON.stringify(Sync.session));
-    }
-    Sync.lastOk = Date.now();
-    if (!$('syncPanel').classList.contains('hidden')) Sync.renderPanel();
-  } catch (e) {
-    toast('云端推送失败：' + e.message, 'error');
-  }
-  Sync._busy = false;
-};
-Sync.pull = function () {
-  if (!Sync.cfgReady() || !Sync.session) return;
-  Sync.api('classes/HouseMapSync?limit=1', 'GET').then(j => {
-    const rec = j.results && j.results[0];
-    if (!rec) { toast('云端还没有数据，请先「推送到云端」'); return; }
-    Sync.session.objectId = rec.objectId;
-    if ((rec.ts || 0) >= Sync.localTs) { Sync.applyCloud(rec); }
-    else { toast('本地数据比云端新，已改为推送', 'error'); Sync.push(); }
-  }).catch(e => toast('拉取失败：' + e.message, 'error'));
-};
-
-/* 本地每次保存后 2.5s 防抖自动推送 */
-Sync.schedulePush = function () {
-  if (!Sync.session || !Sync.cfgReady() || Sync._applying) return;
-  clearTimeout(Sync._pushTimer);
-  Sync._pushTimer = setTimeout(() => Sync.push(), 2500);
-};
 /* ---- 面板 UI ---- */
+function _esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 Sync.renderPanel = function () {
-  const box = $('syncPanel');
-  if (!box) return;
-  let h = '<div class="sync-head"><b>☁ 账号同步</b><button type="button" id="syncClose" class="btn small">✕</button></div>';
-  if (!Sync.cfgReady()) {
-    h += '<div class="sync-guide">首次使用需创建一个免费 LeanCloud 应用（约 3 分钟）：<br>' +
-      '① 打开 <b>console.leancloud.app</b> 用邮箱注册；<br>' +
-      '② 创建应用（名称随意），选免费「开发版」；<br>' +
-      '③ 「凭证」页复制 <b>AppID / AppKey</b>；<br>' +
-      '④ 「设置→域名」复制 <b>API 服务器地址</b>（https://xxx.api.lncldglobal.com）；<br>' +
-      '⑤ 填入下方并保存，即可注册/登录同步账号。</div>' +
-      '<label>API 服务器<input type="text" id="sy-server" placeholder="https://xxx.api.lncldglobal.com" value="' + (Sync.cfg.server || '') + '"></label>' +
-      '<label>AppID<input type="text" id="sy-appid" value="' + (Sync.cfg.appId || '') + '"></label>' +
-      '<label>AppKey<input type="text" id="sy-appkey" value="' + (Sync.cfg.appKey || '') + '"></label>' +
-      '<div class="sync-btns"><button type="button" id="sy-savecfg" class="btn primary">保存配置</button></div>';
-  } else if (!Sync.session) {
-    h += '<label>用户名<input type="text" id="sy-user" autocomplete="username" placeholder="用于跨设备同步"></label>' +
-      '<label>密码<input type="password" id="sy-pass" autocomplete="current-password" placeholder="至少 4 位"></label>' +
-      '<div class="sync-btns">' +
-      '<button type="button" id="sy-login" class="btn primary">登录</button>' +
-      '<button type="button" id="sy-signup" class="btn">注册并登录</button>' +
-      '<button type="button" id="sy-changecfg" class="btn">改配置</button></div>' +
-      '<div class="sync-tip">同一账号在任意设备登录后，数据自动保持一致。</div>';
-  } else {
-    h += '<div class="sync-me">已登录：<b>' + Sync.session.username + '</b>' +
-      (Sync.lastOk ? '<br><small>上次推送 ' + new Date(Sync.lastOk).toLocaleTimeString() + '</small>' : '') + '</div>' +
-      '<div class="sync-btns">' +
-      '<button type="button" id="sy-push" class="btn primary">推送到云端</button>' +
-      '<button type="button" id="sy-pull" class="btn">拉取云端</button>' +
-      '<button type="button" id="sy-logout" class="btn danger">退出登录</button></div>' +
-      '<div class="sync-tip">自动同步已开启：本地任何修改约 2.5 秒后自动推送云端；其他设备登录后自动拉取最新数据。</div>';
+  const panel = document.getElementById('syncPanel');
+  if (!panel) return;
+  const guide = {
+    gitee: '① 注册/登录 <a href="https://gitee.com" target="_blank">gitee.com</a>（手机号即可，国内速度快）<br>' +
+      '② 打开 <a href="https://gitee.com/profile/personal_access_tokens" target="_blank">个人访问令牌页</a>，点「生成新令牌」<br>' +
+      '③ 权限只勾选 <b>projects</b>，生成后复制粘贴到下方<br>' +
+      '④ 首次连接会自动创建私有仓库 house-map-sync 存放数据',
+    github: '① 打开 <a href="https://github.com/settings/tokens" target="_blank">Tokens 页</a> → Generate new token (classic)<br>' +
+      '② 权限只勾选 <b>gist</b>，生成后复制粘贴到下方<br>' +
+      '③ 数据存为该账号的一条私密 Gist，不会公开'
+  };
+  const setProvider = function (key) {
+    const g = panel.querySelector('#syncGuide');
+    if (g) g.innerHTML = guide[key] || '';
+  };
+  if (!Sync.session) {
+    panel.innerHTML =
+      '<div class="sync-box"><div class="sync-panel-title">☁ 云同步 · 选择服务</div>' +
+      '<label class="sync-opt"><input type="radio" name="syncProvider" value="gitee" checked> Gitee（国内推荐，免费）</label>' +
+      '<label class="sync-opt"><input type="radio" name="syncProvider" value="github"> GitHub（已有账号可免注册）</label>' +
+      '<div class="sync-guide" id="syncGuide"></div>' +
+      '<div class="sync-field">访问令牌（只存本机浏览器）' +
+      '<input id="syncToken" type="password" placeholder="粘贴个人访问令牌" autocomplete="off"></div>' +
+      '<div class="sync-actions"><button class="btn primary" id="syncLoginBtn">保存并连接</button>' +
+      '<button class="btn" id="syncCloseBtn">取消</button></div>' +
+      '<div class="sync-status" id="syncStatus"></div></div>';
+    setProvider('gitee');
+    panel.querySelectorAll('input[name="syncProvider"]').forEach(function (el) {
+      el.addEventListener('change', function () { setProvider(el.value); });
+    });
+    panel.querySelector('#syncLoginBtn').addEventListener('click', function () {
+      const key = panel.querySelector('input[name="syncProvider"]:checked').value;
+      const token = document.getElementById('syncToken').value.trim();
+      const st = document.getElementById('syncStatus');
+      if (!token) { st.textContent = '请粘贴访问令牌'; return; }
+      st.textContent = '正在连接验证…';
+      Sync.start(key, token,
+        function () { st.textContent = ''; Sync.renderPanel(); Sync.updateBtn(); toast('☁ 已连接，开始自动同步'); },
+        function (msg) { st.textContent = '连接失败：' + msg; });
+    });
+    panel.querySelector('#syncCloseBtn').addEventListener('click', hideSyncPanel);
+    return;
   }
-  box.innerHTML = h;
-  $('syncClose').onclick = () => box.classList.add('hidden');
-  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
-  on('sy-savecfg', () => {
-    Sync.cfg = {
-      server: $('sy-server').value.trim(),
-      appId: $('sy-appid').value.trim(),
-      appKey: $('sy-appkey').value.trim()
-    };
-    if (!Sync.cfgReady()) { toast('三项都需要填写', 'error'); return; }
-    localStorage.setItem('cz-sync-cfg', JSON.stringify(Sync.cfg));
-    toast('配置已保存，请注册/登录');
-    Sync.renderPanel();
+  const p = SyncProviders[Sync.session.provider];
+  const last = Sync.lastOk ? new Date(Sync.lastOk).toLocaleString() : '—';
+  panel.innerHTML =
+    '<div class="sync-box"><div class="sync-panel-title">☁ 云同步</div>' +
+    '<div class="sync-status">已登录：<b>' + _esc(p.name) + '</b> · ' + _esc(Sync.session.username) + '</div>' +
+    '<div class="sync-status">上次成功同步：' + last + '</div>' +
+    '<div class="sync-status">本地修改保存后自动推送；在其他设备打开会自动拉取最新数据。</div>' +
+    '<div class="sync-actions"><button class="btn primary" id="syncPushBtn">⬆ 立即推送</button>' +
+    '<button class="btn" id="syncPullBtn">⬇ 拉取云端</button>' +
+    '<button class="btn danger" id="syncLogoutBtn">退出登录</button>' +
+    '<button class="btn" id="syncCloseBtn">关闭</button></div>' +
+    '<div class="sync-status" id="syncStatus"></div></div>';
+  panel.querySelector('#syncPushBtn').addEventListener('click', function () {
+    const st = document.getElementById('syncStatus');
+    st.textContent = '推送中…';
+    Sync.push()
+      .then(() => { st.textContent = '推送成功 ' + new Date().toLocaleTimeString(); })
+      .catch(e => { st.textContent = '推送失败：' + e.message; });
   });
-  on('sy-changecfg', () => { localStorage.removeItem('cz-sync-cfg'); Sync.cfg = Sync.loadCfg(); Sync.renderPanel(); });
-  on('sy-signup', () => {
-    const u = $('sy-user').value.trim(), p = $('sy-pass').value;
-    if (!u || p.length < 4) { toast('用户名必填、密码至少 4 位', 'error'); return; }
-    Sync.signup(u, p).catch(e => toast('注册失败：' + e.message, 'error'));
+  panel.querySelector('#syncPullBtn').addEventListener('click', function () {
+    const st = document.getElementById('syncStatus');
+    st.textContent = '拉取中…';
+    Sync.pull().catch(e => { st.textContent = '拉取失败：' + e.message; });
   });
-  on('sy-login', () => {
-    const u = $('sy-user').value.trim(), p = $('sy-pass').value;
-    if (!u || !p) { toast('请输入用户名和密码', 'error'); return; }
-    Sync.login(u, p).catch(e => toast('登录失败：' + e.message, 'error'));
+  panel.querySelector('#syncLogoutBtn').addEventListener('click', function () {
+    Sync.logout(); Sync.renderPanel(); Sync.updateBtn();
   });
-  on('sy-push', () => Sync.push());
-  on('sy-pull', () => Sync.pull());
-  on('sy-logout', () => Sync.logout());
+  panel.querySelector('#syncCloseBtn').addEventListener('click', hideSyncPanel);
+};
+
+function toggleSyncPanel() {
+  const panel = document.getElementById('syncPanel');
+  if (!panel) return;
+  if (panel.classList.contains('hidden')) { Sync.renderPanel(); panel.classList.remove('hidden'); }
+  else panel.classList.add('hidden');
+}
+window.toggleSyncPanel = toggleSyncPanel;
+
+function hideSyncPanel() {
+  const panel = document.getElementById('syncPanel');
+  if (panel) panel.classList.add('hidden');
+}
+
+Sync.updateBtn = function () {
+  const btn = document.getElementById('syncBtn');
+  if (!btn) return;
+  btn.textContent = Sync.session ? '☁ 已同步：' + Sync.session.username : '☁ 同步';
 };
 
 Sync.init = function () {
-  Sync.cfg = Sync.loadCfg();
-  Sync.localTs = +(localStorage.getItem('cz-sync-localts') || 0);
-  try {
-    const s = JSON.parse(localStorage.getItem('cz-sync-session') || 'null');
-    if (s && s.token) Sync.session = s;
-  } catch (e) { /* ignore */ }
-  $('syncBtn').onclick = () => {
-    Sync.renderPanel();
-    $('syncPanel').classList.toggle('hidden');
-  };
-  /* 已登录则开机静默对齐 */
-  if (Sync.session && Sync.cfgReady()) Sync.handshake();
+  const btn = document.getElementById('syncBtn');
+  if (btn) btn.addEventListener('click', toggleSyncPanel);
+  const s = Sync.loadSession();
+  if (s && s.provider && s.token) {
+    Sync.session = s;
+    Sync.updateBtn();
+    Sync.handshake().catch(e => console.warn('[sync] 握手失败：', e.message));
+  }
 };
 
-/* 挂钩 Store.save：本地保存后自动调度云端推送 */
-(function () {
-  const orig = Store.save.bind(Store);
-  Store.save = function () { const r = orig(); Sync.schedulePush(); return r; };
-})();
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', Sync.init);
+else Sync.init();
 
-document.addEventListener('DOMContentLoaded', Sync.init);

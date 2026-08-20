@@ -37,8 +37,15 @@ const Store = {
       c && c.key && c.name && isFinite(+c.lat) && isFinite(+c.lng) && isFinite(+c.radius) && +c.radius > 0);
   },
   save() {
-    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); return true; }
+    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); }
     catch (e) { console.warn('保存失败（localStorage 已满或被禁用）', e); return false; }
+    if (window.Sync) Sync.schedulePush(); /* 已登录时防抖自动推送云端 */
+    return true;
+  },
+  /* 静默写入（云同步拉取覆盖时使用，不触发再次推送） */
+  _persist() {
+    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); return true; }
+    catch (e) { console.warn('保存失败', e); return false; }
   },
   /* 回读校验：确认数据真正写入（隐私/无痕模式、禁用存储的浏览器会静默丢失） */
   verify() {

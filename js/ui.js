@@ -322,7 +322,7 @@ function renderSidebar() {
 /* ---- 地名/小区搜索：本地即时 + 高德POI/Photon/Nominatim 并行 + Overpass 深搜兜底 ---- */
 let searchToken = 0;
 const searchCache = new Map();
-const SEARCH_CACHE_KEY = 'cz-search-cache-v1';
+const SEARCH_CACHE_KEY = 'cz-search-cache-v2';   // v2：废弃旧版（可能含错配结果）缓存
 
 /* 搜索缓存持久化（localStorage）：搜过的词刷新页面后仍秒出，免疫在线服务限流 */
 (function loadSearchCache() {
@@ -363,6 +363,7 @@ function sortSearchRows(box) {
   const items = Array.prototype.slice.call(box.querySelectorAll('.sr-item:not(.sr-status)'));
   items.sort((a, b) =>
     ((+b.dataset.local || 0) - (+a.dataset.local || 0)) ||
+    ((+b.dataset.hit || 0) - (+a.dataset.hit || 0)) ||
     ((+b.dataset.cz || 0) - (+a.dataset.cz || 0)));
   items.forEach(it => box.insertBefore(it, st));
 }
@@ -418,6 +419,10 @@ function addSearchRow(box, name, sub, lat, lng, isGcj, isLocal, recordId) {
   item.className = 'sr-item';
   item.dataset.local = isLocal === '2' ? '2' : (isLocal ? '1' : '0');
   item.dataset.cz = (inChangzhou(p[1], p[0]) || /常州/.test(String(name || '') + String(sub || ''))) ? '1' : '0';
+  /* 名称精确命中关键词（或词干）置顶：洪庄村委会 排在 Photon 模糊匹配的 洪溪/洪都 前面 */
+  item.dataset.hit = (box._kw && name &&
+    (name.indexOf(box._kw) >= 0 ||
+      (box._stem && box._stem !== box._kw && name.indexOf(box._stem) >= 0))) ? '1' : '0';
   item.innerHTML = '<span class="sr-name">' + escHtml(name) +
     (recordId ? '<span class="sr-sub"><i class="sr-saved-tag">⭐ 已标记</i></span>' : '') +
     (sub ? '<span class="sr-sub">' + escHtml(sub) + '</span>' : '') +
@@ -526,21 +531,23 @@ async function doSearch() {
   box.className = 'search-results';
   box.innerHTML = '';
   box._seen = new Set();   // 重置行去重集合，避免上一次搜索的去重吞掉本次结果
+  box._kw = kw;            // 行相关性排序用（名称精确命中置顶）
+  box._stem = kw.replace(/(村民委员会|村委会|委员会|居委会|党支部)$/, '');
   const localN = renderLocalHits(box, kw);
 
+  /* 缓存结果立即展示（0 延迟），同时后台联网刷新纠正/补充——旧缓存不再屏蔽新搜索源 */
+  const all = [];   // 本次渲染的全部行（缓存+在线），结束去重后写回缓存
   const cached = searchCache.get(kw);
   if (cached && cached.length) {
-    cached.forEach(r => addSearchRow(box, r[0], r[1], r[2], r[3], !!r[4]));
+    cached.forEach(r => { all.push(r); addSearchRow(box, r[0], r[1], r[2], r[3], !!r[4]); });
     sortSearchRows(box);
-    setSearchStatus(box, '✅（缓存结果）点击行定位，「＋标记」加为小区');
-    return;
+    setSearchStatus(box, '✅（缓存结果）先展示，后台联网刷新中…');
   }
-  if (cached) searchCache.delete(kw);   // 清理历史遗留的空缓存，继续走联网搜索
   if (!navigator.onLine) { setSearchStatus(box, '⚠️ 无网络，仅显示本地结果'); return; }
 
   const hits = [];    // 行格式 [name, sub, lat, lng, isGcj]
   const failed = [];  // 不可用的在线源名称，用于状态栏诊断
-  const collect = r => { hits.push(r); addSearchRow(box, r[0], r[1], r[2], r[3], r[4]); };
+  const collect = r => { hits.push(r); all.push(r); addSearchRow(box, r[0], r[1], r[2], r[3], r[4]); };
 
   /* ① 三源并行竞速：高德 PlaceSearch(POI)+Geocoder / Photon / Nominatim(多镜像)，谁先出结果谁先渲染，互为备份 */
   setSearchStatus(box, localN ? '↑ 本地匹配；正在联网搜索（多源并行）…'
@@ -580,8 +587,15 @@ async function doSearch() {
   }
 
   if (my !== searchToken) return;
-  if (hits.length) {
-    searchCache.set(kw, hits.slice(0, 30));
+  if (all.length) {
+    /* 缓存+在线合并去重后写回（刷新旧缓存，保证新源纠正旧结果） */
+    const seen = new Set(), rows = [];
+    all.forEach(r => {
+      const k = String(r[0]) + (+r[2]).toFixed(3) + (+r[3]).toFixed(3);
+      if (seen.has(k)) return;
+      seen.add(k); rows.push(r);
+    });
+    searchCache.set(kw, rows.slice(0, 30));
     saveSearchCache();
     setSearchStatus(box, '✅ 搜索完成：点击行定位，「＋标记」加为小区');
   } else {
@@ -599,6 +613,8 @@ function liveLocalSearch() {
   box.className = 'search-results';
   box.innerHTML = '';
   box._seen = new Set();
+  box._kw = kw;
+  box._stem = kw.replace(/(村民委员会|村委会|委员会|居委会|党支部)$/, '');
   const n = renderLocalHits(box, kw);
   setSearchStatus(box, n ? '↑ 本地匹配，回车联网搜索' : '本地无匹配，回车联网搜索');
 }

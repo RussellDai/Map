@@ -35,6 +35,20 @@ const Store = {
     }
     this.data.circles = this.data.circles.filter(c =>
       c && c.key && c.name && isFinite(+c.lat) && isFinite(+c.lng) && isFinite(+c.radius) && +c.radius > 0);
+    /* 内建圆圈跟随默认配置（版本号驱动）：配置里半径/坐标调整后，本地旧数据下次加载自动升级；
+       用户自定义圆圈、以及内建圈被改名/换色不受影响；已删除的内建圈会按最新配置重新补回 */
+    if (CONFIG.circlesVersion) {
+      const CV_KEY = 'cz-circles-ver';
+      const cv = parseInt(localStorage.getItem(CV_KEY), 10) || 0;
+      if (cv < CONFIG.circlesVersion) {
+        defaultCircles().forEach(d => {
+          const ex = this.data.circles.find(c => c.key === d.key);
+          if (ex) { ex.radius = d.radius; ex.lat = d.lat; ex.lng = d.lng; }
+          else this.data.circles.push(d);
+        });
+        try { localStorage.setItem(CV_KEY, String(CONFIG.circlesVersion)); } catch (e) { }
+      }
+    }
   },
   save() {
     try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); }

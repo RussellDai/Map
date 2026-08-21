@@ -9,16 +9,19 @@ const CONFIG = {
   /* 两个圆心：wgs84 为 OpenStreetMap 实测坐标，运行时自动转 GCJ02 与高德底图对齐 */
   centers: [
     {
-      key: 'yaoguan', name: '遥观卫生院', radius: 13000, color: '#2563eb',
+      key: 'yaoguan', name: '遥观卫生院', radius: 15000, color: '#2563eb',
       wgs84: [120.0307979, 31.7038270],
       note: '来源：OpenStreetMap「遥观镇卫生院」（WGS84，已自动纠偏）'
     },
     {
-      key: 'jintan', name: '金坛德国中心', radius: 37000, color: '#ea580c',
+      key: 'jintan', name: '金坛德国中心', radius: 40000, color: '#ea580c',
       wgs84: [119.6516667, 31.7377025],
       note: '来源：OpenStreetMap「中国(常州)德国中心」（WGS84，已自动纠偏）'
     }
   ],
+
+  /* 内建生活圈默认配置的版本号：半径/坐标调整后，本地已保存的旧数据下次加载自动同步（见 store.js） */
+  circlesVersion: 2,
 
   /* Overpass（OpenStreetMap 查询）镜像列表；普通加载按序故障转移，搜索时并行竞速 */
   overpassEndpoints: [

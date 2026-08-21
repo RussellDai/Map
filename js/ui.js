@@ -56,6 +56,19 @@ function openAerialVideo(c) {
     encodeURIComponent(c.name + ' 航拍 实景'), '_blank');
 }
 
+/* ---- 看房平台联动：贝壳 / 安居客（官方楼盘照片、户型图、VR 看房，比 3D 地图更清晰） ---- */
+/* 贝壳找房（常州站）小区搜索：小区实景图、户型图、成交均价、VR 看房 */
+function openBeike(c) {
+  if (!c || !c.name) { toast('缺少小区名称', 'error'); return; }
+  window.open('https://cz.ke.com/xiaoqu/rs' + encodeURIComponent(c.name) + '/', '_blank');
+}
+/* 安居客（常州站）小区搜索：楼盘相册、均价走势、小区点评 */
+function openAnjuke(c) {
+  if (!c || !c.name) { toast('缺少小区名称', 'error'); return; }
+  window.open('https://changzhou.anjuke.com/community/search/?keyword=' +
+    encodeURIComponent(c.name), '_blank');
+}
+
 /* ---- 悬停提示内容 ---- */
 function tooltipHTML(c) {
   let h = '<div class="tip-name">' + escHtml(c.name) + '</div>';
@@ -103,6 +116,8 @@ function openEditor(id) {
     '  <button class="btn" id="f-g3d" title="Google Earth Web 三维实景（更清晰，需可访问 Google 的网络）">🌏 Google 3D</button>' +
     '  <button class="btn" id="f-video" title="在 B站 搜索该小区航拍/实景视频">🎬 航拍视频</button>' +
     '  <button class="btn" id="f-photos" title="在百度图片搜索该小区实景照片">📷 实景照片</button>' +
+    '  <button class="btn" id="f-beike" title="在贝壳找房搜索该小区：实景照片、户型图、VR 看房">🏠 贝壳</button>' +
+    '  <button class="btn" id="f-anjuke" title="在安居客搜索该小区：楼盘相册、均价走势、小区点评">🏘 安居客</button>' +
     '  <button class="btn danger" id="f-del">🗑 删除</button>' +
     '  <button class="btn" id="f-cancel">关闭</button>' +
     '</div>';
@@ -171,6 +186,8 @@ function openEditor(id) {
     window.open('https://image.baidu.com/search/index?tn=baiduimage&word=' +
       encodeURIComponent((c.name || '小区') + ' 小区 实景'), '_blank');
   };
+  $('f-beike').onclick = () => openBeike(App.records.get(id));
+  $('f-anjuke').onclick = () => openAnjuke(App.records.get(id));
 
   /* 距离徽章（放在按钮绑定之后，异常不影响保存） */
   $('f-dist').innerHTML = Object.values(App.centers).map(ct => {

@@ -56,17 +56,19 @@ function openAerialVideo(c) {
     encodeURIComponent(c.name + ' 航拍 实景'), '_blank');
 }
 
-/* ---- 看房平台联动：贝壳 / 安居客（官方楼盘照片、户型图、VR 看房，比 3D 地图更清晰） ---- */
-/* 清洗小区名关键词：楼盘名常含 ·、()、空格等符号，会破坏贝壳 rs 路径、也降低安居客命中率 */
+/* ---- 看房平台联动：房天下 / 安居客（小区相册、均价走势、户型图） ---- */
+/* 清洗小区名关键词：楼盘名常含 ·、()、空格等符号，去掉可提高平台搜索命中率 */
 function cleanCommunityKw(name) {
   return String(name || '').replace(/[·・•\-—–_|()（）【】\[\]「」、,，.。!！?？\s]+/g, '').trim();
 }
-/* 常州贝壳无独立小区频道（/xiaoqu/ 会跳回首页）；二手房搜索支持按小区名匹配，
-   可从房源进入小区页看实景图、户型图与 VR 带看 */
-function openBeike(c) {
+/* 房天下常州站·找小区：cz 子域服务端锁定常州，不会按 IP 跳到别的城市。
+   注：贝壳常州站已迁至 cz.fang.ke.com，小区/二手房频道不再开放外链（跳首页或登录墙），
+   链家常州站不存在，故用房天下承载小区查询；页面顶部搜索框支持小区名联想 */
+function openFang(c) {
   const kw = cleanCommunityKw(c && c.name);
   if (!kw) { toast('缺少小区名称', 'error'); return; }
-  window.open('https://cz.ke.com/ershoufang/rs' + encodeURIComponent(kw) + '/', '_blank');
+  window.open('https://cz.esf.fang.com/housing/?keyword=' + encodeURIComponent(kw), '_blank');
+  toast('已打开房天下常州站；若未自动筛选，请在页面顶部搜索框输入小区名', 'success');
 }
 /* 安居客（常州站）小区搜索：楼盘相册、均价走势、小区点评 */
 function openAnjuke(c) {
@@ -123,8 +125,8 @@ function openEditor(id) {
     '  <button class="btn" id="f-g3d" title="Google Earth Web 三维实景（更清晰，需可访问 Google 的网络）">🌏 Google 3D</button>' +
     '  <button class="btn" id="f-video" title="在 B站 搜索该小区航拍/实景视频">🎬 航拍视频</button>' +
     '  <button class="btn" id="f-photos" title="在百度图片搜索该小区实景照片">📷 实景照片</button>' +
-    '  <button class="btn" id="f-beike" title="在贝壳找房搜索该小区：实景照片、户型图、VR 看房">🏠 贝壳</button>' +
-    '  <button class="btn" id="f-anjuke" title="在安居客搜索该小区：楼盘相册、均价走势、小区点评">🏘 安居客</button>' +
+    '  <button class="btn" id="f-fang" title="在房天下常州站找小区：小区相册、均价走势、户型（已锁定常州，顶部搜索框可输小区名）">🏠 房天下</button>' +
+    '  <button class="btn" id="f-anjuke" title="在安居客常州站搜索该小区：楼盘相册、均价走势、小区点评（已锁定常州，如遇滑块验证通过后即达）">🏘 安居客</button>' +
     '  <button class="btn danger" id="f-del">🗑 删除</button>' +
     '  <button class="btn" id="f-cancel">关闭</button>' +
     '</div>';
@@ -193,7 +195,7 @@ function openEditor(id) {
     window.open('https://image.baidu.com/search/index?tn=baiduimage&word=' +
       encodeURIComponent((c.name || '小区') + ' 小区 实景'), '_blank');
   };
-  $('f-beike').onclick = () => openBeike(App.records.get(id));
+  $('f-fang').onclick = () => openFang(App.records.get(id));
   $('f-anjuke').onclick = () => openAnjuke(App.records.get(id));
 
   /* 距离徽章（放在按钮绑定之后，异常不影响保存） */

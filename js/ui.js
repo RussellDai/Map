@@ -319,7 +319,7 @@ function renderSidebar() {
   });
 }
 
-/* ---- 地名/小区搜索：本地即时 + Photon/Nominatim 地理编码 + Overpass 深搜兜底 ---- */
+/* ---- 地名/小区搜索：本地即时 + 高德POI/Photon/Nominatim 并行 + Overpass 深搜兜底 ---- */
 let searchToken = 0;
 const searchCache = new Map();
 const SEARCH_CACHE_KEY = 'cz-search-cache-v1';
@@ -479,17 +479,34 @@ function srcNominatim(kw) {
       .filter(r => r[0] && isFinite(r[2]) && isFinite(r[3])));
 }
 
-/* 高德 Geocoder（国内最快、中文地址最强，复用现有 JS API Key；浏览器拦截高德时快速静默失败） */
+/* 高德 POI 搜索 + 地理编码（国内中文最强：PlaceSearch 命中小区/村委会/学校等命名地点，
+   Geocoder 兜底门牌地址；复用现有 JS API Key；浏览器拦截高德时快速静默失败） */
 function srcAmap(kw) {
   const job = Amap3d.load().then(AMap => new Promise((resolve, reject) => {
+    const finish = rows => {
+      if (rows && rows.length) resolve(rows);
+      else reject(new Error('高德无结果'));
+    };
     try {
-      AMap.plugin('AMap.Geocoder', () => {
+      AMap.plugin(['AMap.PlaceSearch', 'AMap.Geocoder'], () => {
         try {
-          new AMap.Geocoder().getLocation(kw, (st, res) => {
-            if (st === 'complete' && res && res.geocodes && res.geocodes.length) {
-              resolve(res.geocodes.slice(0, 10).map(g =>
-                [kw, g.formattedAddress || '', g.location.getLat(), g.location.getLng(), true]));
-            } else reject(new Error('高德无结果'));
+          /* ① POI 搜索：小区、村委会、学校等命名地点（常州优先，不限城市） */
+          const ps = new AMap.PlaceSearch({ city: '常州', citylimit: false, pageSize: 10, extensions: 'all' });
+          ps.search(kw, (st, res) => {
+            const pois = (st === 'complete' && res && res.poiList && res.poiList.pois) || [];
+            if (pois.length) {
+              finish(pois.map(p => p.location &&
+                [p.name, [p.pname, p.cityname, p.adname, p.address].filter(Boolean).join(' '),
+                  p.location.getLat(), p.location.getLng(), true]).filter(Boolean));
+            } else {
+              /* ② 无 POI 再试地址地理编码（覆盖「路+门牌」式详细住址） */
+              try {
+                new AMap.Geocoder().getLocation(kw, (st2, res2) => {
+                  finish(((st2 === 'complete' && res2 && res2.geocodes) || []).slice(0, 10).map(g =>
+                    [kw, g.formattedAddress || '', g.location.getLat(), g.location.getLng(), true]));
+                });
+              } catch (e) { reject(e); }
+            }
           });
         } catch (e) { reject(e); }
       });
@@ -508,23 +525,26 @@ async function doSearch() {
   const box = $('searchResults');
   box.className = 'search-results';
   box.innerHTML = '';
+  box._seen = new Set();   // 重置行去重集合，避免上一次搜索的去重吞掉本次结果
   const localN = renderLocalHits(box, kw);
 
-  if (searchCache.has(kw)) {
-    searchCache.get(kw).forEach(r => addSearchRow(box, r[0], r[1], r[2], r[3], !!r[4]));
+  const cached = searchCache.get(kw);
+  if (cached && cached.length) {
+    cached.forEach(r => addSearchRow(box, r[0], r[1], r[2], r[3], !!r[4]));
     sortSearchRows(box);
     setSearchStatus(box, '✅（缓存结果）点击行定位，「＋标记」加为小区');
     return;
   }
+  if (cached) searchCache.delete(kw);   // 清理历史遗留的空缓存，继续走联网搜索
   if (!navigator.onLine) { setSearchStatus(box, '⚠️ 无网络，仅显示本地结果'); return; }
 
   const hits = [];    // 行格式 [name, sub, lat, lng, isGcj]
   const failed = [];  // 不可用的在线源名称，用于状态栏诊断
   const collect = r => { hits.push(r); addSearchRow(box, r[0], r[1], r[2], r[3], r[4]); };
 
-  /* ① 三源并行竞速：Photon / Nominatim(多镜像) / 高德 Geocoder，谁先出结果谁先渲染，互为备份 */
+  /* ① 三源并行竞速：高德 PlaceSearch(POI)+Geocoder / Photon / Nominatim(多镜像)，谁先出结果谁先渲染，互为备份 */
   setSearchStatus(box, localN ? '↑ 本地匹配；正在联网搜索（多源并行）…'
-    : '🔍 正在联网搜索（Photon / Nominatim / 高德 并行）…');
+    : '🔍 正在联网搜索（高德POI / Photon / Nominatim 并行）…');
   await Promise.allSettled([
     srcPhoton(kw).then(rows => { rows.forEach(collect); sortSearchRows(box); },
       e => { failed.push('Photon'); console.warn('Photon 不可用:', e.message); }),
@@ -539,8 +559,12 @@ async function doSearch() {
   if (!hits.length) {
     setSearchStatus(box, '🔍 地理编码不可用，Overpass 深度搜索中（10~30秒）…');
     try {
-      const esc = kw.replace(/[.*+?^${}()|[\]\\"]/g, '\\$&');
-      const q = '[out:json][timeout:20];nwr["name"~"' + esc + '"](' + CONFIG.czBBox + ');out center 30;';
+      const esc = s => s.replace(/[.*+?^${}()|[\]\\"]/g, '\\$&');
+      /* 全词 + 词干（去掉「村委会/委员会/居委会」等后缀）双匹配：洪庄村委会 也能命中 洪庄村 */
+      const stem = kw.replace(/(村民委员会|村委会|委员会|居委会|党支部)$/, '');
+      const alts = [esc(kw)];
+      if (stem !== kw && stem.length >= 2) alts.push(esc(stem));
+      const q = '[out:json][timeout:20];nwr["name"~"' + alts.join('|') + '"](' + CONFIG.czBBox + ');out center 30;';
       const json = await Overpass.runQuery(q, { race: true, timeoutMs: 35000 });
       if (my !== searchToken) return;
       (json.elements || []).forEach(el => {
@@ -574,6 +598,7 @@ function liveLocalSearch() {
   if (!kw) { box.className = 'search-results hidden'; return; }
   box.className = 'search-results';
   box.innerHTML = '';
+  box._seen = new Set();
   const n = renderLocalHits(box, kw);
   setSearchStatus(box, n ? '↑ 本地匹配，回车联网搜索' : '本地无匹配，回车联网搜索');
 }

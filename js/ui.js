@@ -610,6 +610,10 @@ function liveLocalSearch() {
   const kw = $('searchInput').value.trim();
   const box = $('searchResults');
   if (!kw) { box.className = 'search-results hidden'; return; }
+  /* 同关键词且下拉已有内容（本地/缓存/在线结果或状态行）：仅恢复显示，不清空重建。
+     否则鼠标移出下拉再移回（悬停/聚焦搜索框）或回车后残留的 input 防抖再次触发时，
+     会把进行中/已完成的在线结果清空，退化成「本地无匹配」（在线结果被误清除的回归） */
+  if (box._kw === kw && box.firstChild) { box.className = 'search-results'; return; }
   box.className = 'search-results';
   box.innerHTML = '';
   box._seen = new Set();

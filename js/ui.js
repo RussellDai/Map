@@ -83,6 +83,12 @@ function tooltipHTML(c) {
   let h = '<div class="tip-name">' + escHtml(c.name) + '</div>';
   const lv = levelOf(c);
   if (lv) h += '<div class="tip-row"><span class="lv-badge lv-' + lv.key + '">' + (LV_ICON[lv.key] || '') + ' ' + lv.name + '</span></div>';
+  /* 到每个圆心（不限个数）的估算车程：直线距离 × 绕行系数 ÷ 平均车速 */
+  Object.values(App.centers).forEach(ct => {
+    const d = distanceKm([c.lat, c.lng], ct.latlng);
+    h += '<div class="tip-row">🚗 ' + escHtml(ct.cfg.name) + '：约' + driveMinutes(d) +
+      '分钟（直线 ' + d.toFixed(1) + ' km）</div>';
+  });
   if (hasInfo(c)) {
     if (c.price) {
       h += '<div class="tip-row">💰 单价 <b>' + escHtml(c.price) + '</b> 元/㎡' +
@@ -198,14 +204,26 @@ function openEditor(id) {
   $('f-fang').onclick = () => openFang(App.records.get(id));
   $('f-anjuke').onclick = () => openAnjuke(App.records.get(id));
 
-  /* 距离徽章（放在按钮绑定之后，异常不影响保存） */
+  /* 距离徽章（放在按钮绑定之后，异常不影响保存）：
+     先显示直线距离 + 估算车程（即时），再异步用高德实际驾车车程替换 */
+  const distBadgeHtml = (ct, d, inR, minutes, est) =>
+    (inR ? '✓' : '✗') + ' 距' + escHtml(ct.cfg.name) + ' ' + d.toFixed(1) + 'km · 🚗约' +
+    minutes + '分' + (est ? '' : '（高德）') + (inR ? '（圈内）' : '');
   $('f-dist').innerHTML = Object.values(App.centers).map(ct => {
     const d = distanceKm([c.lat, c.lng], ct.latlng);
     const inR = d <= ct.cfg.radius / 1000;
-    return '<span class="dist-badge" style="border-color:' + ct.cfg.color + ';color:' + ct.cfg.color + '">' +
-      (inR ? '✓' : '✗') + ' 距' + ct.cfg.name + ' ' + d.toFixed(1) + 'km' +
-      (inR ? '（圈内）' : '') + '</span>';
+    return '<span class="dist-badge" id="f-dist-' + ct.cfg.key + '" style="border-color:' + ct.cfg.color + ';color:' + ct.cfg.color + '">' +
+      distBadgeHtml(ct, d, inR, driveMinutes(d), true) + '</span>';
   }).join('');
+  Object.values(App.centers).forEach(ct => {
+    AmapDrive.minutes(c, ct.latlng).then(r => {
+      const el = $('f-dist-' + ct.cfg.key);
+      if (!el) return;   /* 弹窗已关闭，忽略结果 */
+      const d = distanceKm([c.lat, c.lng], ct.latlng);
+      const inR = d <= ct.cfg.radius / 1000;
+      el.innerHTML = distBadgeHtml(ct, d, inR, r.minutes, false);
+    }).catch(e => console.warn('高德车程查询失败，保留估算值：', e.message));
+  });
 }
 /* ---- 侧栏清单 ---- */
 function renderSidebar() {
@@ -249,7 +267,7 @@ function renderSidebar() {
     let badges = Object.values(App.centers).map(ct => {
       const dd = d[ct.cfg.key], inR = dd <= ct.cfg.radius / 1000;
       return '<span class="badge ' + (inR ? 'in' : 'out') + '">' +
-        ct.cfg.name + ' ' + dd.toFixed(1) + 'km</span>';
+        escHtml(ct.cfg.name) + ' ' + dd.toFixed(1) + 'km · 🚗约' + driveMinutes(dd) + '分</span>';
     }).join('');
     const lvDots = CONFIG.levels.map(l =>
       '<button class="lv-dot lv-dot-' + l.key + (c.level === l.key ? ' active' : '') +

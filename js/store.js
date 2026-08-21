@@ -74,11 +74,12 @@ function distanceKm(a, b) {
   return pa.distanceTo(pb) / 1000;
 }
 
-/* ===== 车程估算：直线距离 × 道路绕行系数 ÷ 城区平均车速。
+/* ===== 车程估算：直线距离 × 道路绕行系数 ÷ 分段平均车速。
    悬停提示与侧栏清单卡片即时展示用（零延迟、无网络依赖）；
-   编辑弹窗打开后会再用高德实际驾车路线替换（见 drive.js）。 ===== */
-const DRIVE_DETOUR = 1.25;  // 城市道路绕行系数（直线 → 实际行驶里程）
-const DRIVE_SPEED = 35;     // 常州城区平均车速 km/h
+   编辑弹窗打开后会再用 OSRM 实际驾车路线替换（见 drive.js）。 ===== */
+const DRIVE_DETOUR = 1.2;   // 城市道路绕行系数（直线 → 实际行驶里程）
 function driveMinutes(km) {
-  return Math.max(1, Math.round(km * DRIVE_DETOUR / DRIVE_SPEED * 60));
+  /* 分段车速：短途纯城区、中途混合、长途含快速路/高速，贴近实测 */
+  const speed = km < 5 ? 35 : km < 15 ? 45 : 60;
+  return Math.max(1, Math.round(km * DRIVE_DETOUR / speed * 60));
 }

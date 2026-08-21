@@ -205,10 +205,10 @@ function openEditor(id) {
   $('f-anjuke').onclick = () => openAnjuke(App.records.get(id));
 
   /* 距离徽章（放在按钮绑定之后，异常不影响保存）：
-     先显示直线距离 + 估算车程（即时），再异步用高德实际驾车车程替换 */
+     先显示直线距离 + 估算车程（即时），再异步用 OSRM 实际驾车车程替换 */
   const distBadgeHtml = (ct, d, inR, minutes, est) =>
     (inR ? '✓' : '✗') + ' 距' + escHtml(ct.cfg.name) + ' ' + d.toFixed(1) + 'km · 🚗约' +
-    minutes + '分' + (est ? '' : '（高德）') + (inR ? '（圈内）' : '');
+    minutes + '分' + (est ? '' : '（导航）') + (inR ? '（圈内）' : '');
   $('f-dist').innerHTML = Object.values(App.centers).map(ct => {
     const d = distanceKm([c.lat, c.lng], ct.latlng);
     const inR = d <= ct.cfg.radius / 1000;
@@ -216,13 +216,13 @@ function openEditor(id) {
       distBadgeHtml(ct, d, inR, driveMinutes(d), true) + '</span>';
   }).join('');
   Object.values(App.centers).forEach(ct => {
-    AmapDrive.minutes(c, ct.latlng).then(r => {
+    Drive.minutes(c, ct.latlng).then(r => {
       const el = $('f-dist-' + ct.cfg.key);
       if (!el) return;   /* 弹窗已关闭，忽略结果 */
       const d = distanceKm([c.lat, c.lng], ct.latlng);
       const inR = d <= ct.cfg.radius / 1000;
       el.innerHTML = distBadgeHtml(ct, d, inR, r.minutes, false);
-    }).catch(e => console.warn('高德车程查询失败，保留估算值：', e.message));
+    }).catch(e => console.warn('导航车程查询失败，保留估算值：', e.message));
   });
 }
 /* ---- 侧栏清单 ---- */

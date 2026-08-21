@@ -57,16 +57,23 @@ function openAerialVideo(c) {
 }
 
 /* ---- 看房平台联动：贝壳 / 安居客（官方楼盘照片、户型图、VR 看房，比 3D 地图更清晰） ---- */
-/* 贝壳找房（常州站）小区搜索：小区实景图、户型图、成交均价、VR 看房 */
+/* 清洗小区名关键词：楼盘名常含 ·、()、空格等符号，会破坏贝壳 rs 路径、也降低安居客命中率 */
+function cleanCommunityKw(name) {
+  return String(name || '').replace(/[·・•\-—–_|()（）【】\[\]「」、,，.。!！?？\s]+/g, '').trim();
+}
+/* 常州贝壳无独立小区频道（/xiaoqu/ 会跳回首页）；二手房搜索支持按小区名匹配，
+   可从房源进入小区页看实景图、户型图与 VR 带看 */
 function openBeike(c) {
-  if (!c || !c.name) { toast('缺少小区名称', 'error'); return; }
-  window.open('https://cz.ke.com/xiaoqu/rs' + encodeURIComponent(c.name) + '/', '_blank');
+  const kw = cleanCommunityKw(c && c.name);
+  if (!kw) { toast('缺少小区名称', 'error'); return; }
+  window.open('https://cz.ke.com/ershoufang/rs' + encodeURIComponent(kw) + '/', '_blank');
 }
 /* 安居客（常州站）小区搜索：楼盘相册、均价走势、小区点评 */
 function openAnjuke(c) {
-  if (!c || !c.name) { toast('缺少小区名称', 'error'); return; }
+  const kw = cleanCommunityKw(c && c.name);
+  if (!kw) { toast('缺少小区名称', 'error'); return; }
   window.open('https://changzhou.anjuke.com/community/search/?keyword=' +
-    encodeURIComponent(c.name), '_blank');
+    encodeURIComponent(kw), '_blank');
 }
 
 /* ---- 悬停提示内容 ---- */
@@ -625,22 +632,14 @@ function renderCircleSettings() {
     nameInput.maxLength = 12;
     nameInput.value = rec.name;
     nameInput.title = '圆圈名称（回车或失焦生效）';
-    nameInput.onchange = () => {
-      const v = nameInput.value.trim();
-      if (v && v !== rec.name) App.renameCircle(rec.key, v);
-      else nameInput.value = rec.name;
-    };
+    nameInput.dataset.role = 'name'; nameInput.dataset.key = rec.key;
     const rInput = document.createElement('input');
     rInput.type = 'number';
     rInput.className = 'cs-radius';
     rInput.min = '0.5'; rInput.max = '200'; rInput.step = '0.5';
     rInput.value = rec.radius / 1000;
     rInput.title = '半径（公里）';
-    rInput.onchange = () => {
-      const v = parseFloat(rInput.value);
-      if (!isFinite(v) || v <= 0) { toast('请输入有效半径（公里）', 'error'); rInput.value = rec.radius / 1000; return; }
-      App.setRadius(rec.key, Math.round(v * 10) / 10);
-    };
+    rInput.dataset.role = 'radius'; rInput.dataset.key = rec.key;
     const km = document.createElement('span');
     km.className = 'cs-km';
     km.textContent = 'km';
@@ -649,7 +648,7 @@ function renderCircleSettings() {
     del.className = 'cs-del';
     del.textContent = '✖';
     del.title = '删除该圆圈';
-    del.onclick = () => App.removeCircle(rec.key);
+    del.dataset.role = 'del'; del.dataset.key = rec.key;
     row.appendChild(dot);
     row.appendChild(nameInput);
     row.appendChild(rInput);
@@ -657,18 +656,19 @@ function renderCircleSettings() {
     row.appendChild(del);
     box.appendChild(row);
   });
+  /* 事件统一由 bindCircleSettingsEvents() 委托到容器：面板内容重建后按钮依然可点 */
   const actions = document.createElement('div');
   actions.className = 'cs-actions';
   const addBtn = document.createElement('button');
   addBtn.type = 'button';
   addBtn.className = 'btn small primary';
   addBtn.textContent = '＋ 添加圆圈';
-  addBtn.onclick = () => App.addCircle();
+  addBtn.dataset.role = 'add';
   const resetBtn = document.createElement('button');
   resetBtn.type = 'button';
   resetBtn.className = 'btn small';
   resetBtn.textContent = '恢复默认两圈';
-  resetBtn.onclick = () => App.resetCircles();
+  resetBtn.dataset.role = 'reset';
   actions.appendChild(addBtn);
   actions.appendChild(resetBtn);
   box.appendChild(actions);
@@ -681,7 +681,48 @@ function renderCircleSettings() {
 function toggleCircleSettings() {
   const box = $('circleSettings');
   const willOpen = box.classList.contains('hidden');
-  if (willOpen) renderCircleSettings();
+  if (willOpen) {
+    /* 手机端清单若处于收起状态，先展开侧栏，否则设置面板会被 CSS 隐藏，看起来像"点了没反应" */
+    const sb = $('sidebar');
+    if (sb && sb.classList.contains('collapsed')) {
+      sb.classList.remove('collapsed');
+      const t = $('sidebarToggle'); if (t) t.textContent = '▾';
+      if (App.map) App.map.invalidateSize();
+    }
+    renderCircleSettings();
+  }
   box.className = 'circle-settings' + (willOpen ? '' : ' hidden');
+}
+
+/* 圆圈设置面板事件委托：只在容器（#circleSettings 常驻 DOM）上绑一次，
+   面板内容无论重建多少次，添加/删除/改名/改半径都始终可点，不会因 DOM 重建丢失响应 */
+function bindCircleSettingsEvents() {
+  const box = $('circleSettings');
+  if (!box || box._bound) return;
+  box._bound = true;
+  function roleOf(el) {                      /* 不依赖 Element.closest 的向上查找 */
+    while (el && el !== box) { if (el.dataset && el.dataset.role) return el; el = el.parentElement; }
+    return null;
+  }
+  box.addEventListener('click', e => {
+    const t = roleOf(e.target); if (!t) return;
+    const role = t.dataset.role;
+    if (role === 'add') App.addCircle();
+    else if (role === 'reset') App.resetCircles();
+    else if (role === 'del' && t.dataset.key) App.removeCircle(t.dataset.key);
+  });
+  box.addEventListener('change', e => {
+    const t = roleOf(e.target); if (!t || !t.dataset.key) return;
+    const rec = Store.data.circles.find(c => c.key === t.dataset.key);
+    if (!rec) return;
+    if (t.dataset.role === 'name') {
+      const v = t.value.trim();
+      if (v && v !== rec.name) App.renameCircle(rec.key, v); else t.value = rec.name;
+    } else if (t.dataset.role === 'radius') {
+      const v = parseFloat(t.value);
+      if (!isFinite(v) || v <= 0) { toast('请输入有效半径（公里）', 'error'); t.value = rec.radius / 1000; return; }
+      App.setRadius(rec.key, Math.round(v * 10) / 10);
+    }
+  });
 }
 

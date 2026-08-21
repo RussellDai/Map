@@ -125,9 +125,16 @@ function initApp() {
   $('routeClear').onclick = () => Route.clear();
   $('routeExit').onclick = () => Route.setMode(false);
   $('circleSettingsBtn').onclick = toggleCircleSettings;
+  bindCircleSettingsEvents(); /* 面板事件委托只绑一次，内容重建后按钮仍可点 */
   $('searchBtn').onclick = doSearch;
-  $('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
-  $('searchInput').addEventListener('input', debounce(liveLocalSearch, 250));
+  const si = $('searchInput');
+  si.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  si.addEventListener('input', debounce(liveLocalSearch, 250));
+  /* 悬停/聚焦搜索框即恢复结果：点击地图（缩放/标记）会关闭下拉框，
+     此前必须再次输入才会弹出；现在鼠标移回搜索框就能看到上次的结果 */
+  const reshowResults = () => { if (si.value.trim()) liveLocalSearch(); };
+  si.addEventListener('mouseenter', reshowResults);
+  si.addEventListener('focus', reshowResults);
   document.addEventListener('click', e => {
     const box = $('searchResults');
     if (!box.contains(e.target) && e.target !== $('searchInput')) box.className = 'search-results hidden';

@@ -322,6 +322,22 @@ function renderSidebar() {
 /* ---- 地名/小区搜索：本地即时 + Photon/Nominatim 地理编码 + Overpass 深搜兜底 ---- */
 let searchToken = 0;
 const searchCache = new Map();
+const SEARCH_CACHE_KEY = 'cz-search-cache-v1';
+
+/* 搜索缓存持久化（localStorage）：搜过的词刷新页面后仍秒出，免疫在线服务限流 */
+(function loadSearchCache() {
+  try {
+    const o = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '{}');
+    Object.keys(o || {}).forEach(k => { if (Array.isArray(o[k])) searchCache.set(k, o[k]); });
+  } catch (e) { /* 存储不可用时忽略 */ }
+})();
+function saveSearchCache() {
+  try {
+    const o = {};
+    Array.from(searchCache.entries()).slice(-80).forEach(e => { o[e[0]] = e[1]; });  // 只留最近 80 个词
+    localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(o));
+  } catch (e) { }
+}
 
 function fetchJsonTimeout(url, ms) {
   const ctrl = new AbortController();
@@ -433,6 +449,57 @@ function setSearchStatus(box, txt) {
   s.textContent = txt;
 }
 
+/* ---- 联网搜索源：均返回 [[name, sub, lat, lng, isGcj], ...]，失败 throw ---- */
+/* Photon 地理编码（快，中文较弱） */
+function srcPhoton(kw) {
+  const czc = czCenter();  // 以常州中心做位置偏好，同名地点优先返回常州（注意：Photon lang 仅支持 default/de/en/fr，勿加 zh）
+  return fetchJsonTimeout('https://photon.komoot.io/api/?q=' + encodeURIComponent(kw) +
+    '&limit=10&lat=' + czc[0].toFixed(4) + '&lon=' + czc[1].toFixed(4), 8000)
+    .then(json => {
+      const rows = [];
+      ((json && json.features) || []).forEach(f => {
+        const pp = (f && f.properties) || {};
+        if (!pp.name || !f.geometry || !f.geometry.coordinates) return;
+        rows.push([pp.name, [pp.district, pp.city, pp.state].filter(Boolean).join(' '),
+          f.geometry.coordinates[1], f.geometry.coordinates[0], false]);
+      });
+      return rows;
+    });
+}
+
+/* Nominatim 地理编码（中文较好，限中国，常州 viewbox 偏好；多镜像并行竞速——官方站在国内常超时） */
+function srcNominatim(kw) {
+  const qs = '/search?format=jsonv2&limit=10&accept-language=zh-CN&countrycodes=cn' +
+    '&viewbox=' + czViewBox() + '&bounded=0&q=' + encodeURIComponent(kw);
+  const hosts = ['https://nominatim.openstreetmap.org', 'https://nominatim.geocoding.ai'];
+  return Promise.any(hosts.map(h => fetchJsonTimeout(h + qs, 8000)))
+    .then(json => (json || [])
+      .map(r => [r.name || (r.display_name || '').split(',')[0], r.display_name,
+        parseFloat(r.lat), parseFloat(r.lon), false])
+      .filter(r => r[0] && isFinite(r[2]) && isFinite(r[3])));
+}
+
+/* 高德 Geocoder（国内最快、中文地址最强，复用现有 JS API Key；浏览器拦截高德时快速静默失败） */
+function srcAmap(kw) {
+  const job = Amap3d.load().then(AMap => new Promise((resolve, reject) => {
+    try {
+      AMap.plugin('AMap.Geocoder', () => {
+        try {
+          new AMap.Geocoder().getLocation(kw, (st, res) => {
+            if (st === 'complete' && res && res.geocodes && res.geocodes.length) {
+              resolve(res.geocodes.slice(0, 10).map(g =>
+                [kw, g.formattedAddress || '', g.location.getLat(), g.location.getLng(), true]));
+            } else reject(new Error('高德无结果'));
+          });
+        } catch (e) { reject(e); }
+      });
+    } catch (e) { reject(e); }
+  }));
+  /* 加载/查询总超时，避免被拦截时无限等待 */
+  return Promise.race([job, new Promise((_, rej) =>
+    setTimeout(() => rej(new Error('高德超时')), 12000))]);
+}
+
 /* 完整搜索（按钮/回车） */
 async function doSearch() {
   const kw = $('searchInput').value.trim();
@@ -444,49 +511,31 @@ async function doSearch() {
   const localN = renderLocalHits(box, kw);
 
   if (searchCache.has(kw)) {
-    searchCache.get(kw).forEach(r => addSearchRow(box, r[0], r[1], r[2], r[3], false));
+    searchCache.get(kw).forEach(r => addSearchRow(box, r[0], r[1], r[2], r[3], !!r[4]));
     sortSearchRows(box);
     setSearchStatus(box, '✅（缓存结果）点击行定位，「＋标记」加为小区');
     return;
   }
   if (!navigator.onLine) { setSearchStatus(box, '⚠️ 无网络，仅显示本地结果'); return; }
 
-  const hits = [];
-  const collect = (name, sub, lat, lng) => { hits.push([name, sub, lat, lng]); addSearchRow(box, name, sub, lat, lng, false); };
+  const hits = [];    // 行格式 [name, sub, lat, lng, isGcj]
+  const failed = [];  // 不可用的在线源名称，用于状态栏诊断
+  const collect = r => { hits.push(r); addSearchRow(box, r[0], r[1], r[2], r[3], r[4]); };
 
-  /* ① Photon 地理编码（通常 1~2 秒） */
-  setSearchStatus(box, localN ? '↑ 本地匹配；正在联网搜索…' : '🔍 正在联网搜索（Photon 地理编码）…');
-  try {
-    const czc = czCenter();  // 以常州中心做位置偏好，同名地点优先返回常州（注意：Photon lang 仅支持 default/de/en/fr，勿加 zh）
-    const json = await fetchJsonTimeout('https://photon.komoot.io/api/?q=' + encodeURIComponent(kw) +
-      '&limit=10&lat=' + czc[0].toFixed(4) + '&lon=' + czc[1].toFixed(4), 8000);
-    if (my !== searchToken) return;
-    ((json && json.features) || []).forEach(f => {
-      const pp = (f && f.properties) || {};
-      if (!pp.name || !f.geometry || !f.geometry.coordinates) return;
-      collect(pp.name, [pp.district, pp.city, pp.state].filter(Boolean).join(' '),
-        f.geometry.coordinates[1], f.geometry.coordinates[0]);
-    });
-    sortSearchRows(box);  // 常州结果置顶
-  } catch (e) { console.warn('Photon 不可用:', e.message); }
+  /* ① 三源并行竞速：Photon / Nominatim(多镜像) / 高德 Geocoder，谁先出结果谁先渲染，互为备份 */
+  setSearchStatus(box, localN ? '↑ 本地匹配；正在联网搜索（多源并行）…'
+    : '🔍 正在联网搜索（Photon / Nominatim / 高德 并行）…');
+  await Promise.allSettled([
+    srcPhoton(kw).then(rows => { rows.forEach(collect); sortSearchRows(box); },
+      e => { failed.push('Photon'); console.warn('Photon 不可用:', e.message); }),
+    srcNominatim(kw).then(rows => { rows.forEach(collect); sortSearchRows(box); },
+      e => { failed.push('Nominatim'); console.warn('Nominatim 不可用:', e.message); }),
+    srcAmap(kw).then(rows => { rows.forEach(collect); sortSearchRows(box); },
+      e => { failed.push('高德'); console.warn('高德地理编码不可用:', e.message); })
+  ]);
+  if (my !== searchToken) return;
 
-  /* ② Nominatim 地理编码备用 */
-  if (!hits.length) {
-    setSearchStatus(box, '🔍 换用 Nominatim 地理编码…');
-    try {
-      const json = await fetchJsonTimeout(
-        'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=10&accept-language=zh-CN' +
-        '&viewbox=' + czViewBox() + '&bounded=0&q=' + encodeURIComponent(kw), 8000);
-      if (my !== searchToken) return;
-      (json || []).forEach(r => {
-        const nm = r.name || (r.display_name || '').split(',')[0];
-        if (nm) collect(nm, r.display_name, parseFloat(r.lat), parseFloat(r.lon));
-      });
-      sortSearchRows(box);  // 常州结果置顶
-    } catch (e) { console.warn('Nominatim 不可用:', e.message); }
-  }
-
-  /* ③ Overpass 深搜兜底（多镜像并行竞速取最快） */
+  /* ② Overpass 深搜兜底（多镜像并行竞速取最快） */
   if (!hits.length) {
     setSearchStatus(box, '🔍 地理编码不可用，Overpass 深度搜索中（10~30秒）…');
     try {
@@ -500,19 +549,21 @@ async function doSearch() {
         let lat = el.lat, lng = el.lon;
         if (lat == null && el.center) { lat = el.center.lat; lng = el.center.lon; }
         if (lat == null || lng == null) return;
-        collect(tags.name, '', lat, lng);
+        collect([tags.name, '', lat, lng, false]);
       });
       sortSearchRows(box);
-    } catch (e) { console.warn('Overpass 搜索失败:', e.message); }
+    } catch (e) { failed.push('Overpass'); console.warn('Overpass 搜索失败:', e.message); }
   }
 
   if (my !== searchToken) return;
   if (hits.length) {
     searchCache.set(kw, hits.slice(0, 30));
+    saveSearchCache();
     setSearchStatus(box, '✅ 搜索完成：点击行定位，「＋标记」加为小区');
   } else {
-    setSearchStatus(box, localN ? '✅ 未找到在线结果，仅显示本地结果'
-      : '未找到相关地点。可放大地图到目标区域后加载，或使用「➕ 手动标记小区」');
+    setSearchStatus(box, (localN ? '✅ 未找到在线结果，仅显示本地结果'
+      : '未找到相关地点。可放大地图到目标区域后加载，或使用「➕ 手动标记小区」') +
+      (failed.length ? '（不可用：' + failed.join('/') + '，可能被限流或广告拦截）' : ''));
   }
 }
 

@@ -1,7 +1,7 @@
 /* ===== style.css ===== */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; overflow: hidden; }
-body { display: flex; flex-direction: column; }
+body { display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 .hidden { display: none !important; }
 
 /* 顶栏 */
@@ -226,6 +226,15 @@ body { display: flex; flex-direction: column; }
 .cs-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 #sidebarToggle { display: none; }
 
+/* ===== 平板适配（769~1200px）：保持左清单右地图布局，顶栏可换行不裁切，侧栏收窄 ===== */
+@media (min-width: 769px) and (max-width: 1200px) {
+  body { height: 100vh; height: 100dvh; }
+  #topbar { height: auto; flex-wrap: wrap; padding: 6px 10px; gap: 6px 10px; }
+  .search-box { flex: 1 1 240px; min-width: 0; }   /* 搜索框伸缩，避免功能按钮被挤出屏幕 */
+  .actions { margin-left: 0; flex-wrap: wrap; }
+  #sidebar { width: 300px; }
+}
+
 /* ===== 移动端适配（≤768px）：顶栏紧凑化 + 底部抽屉式清单（同屏至少 3 张小区卡片） ===== */
 @media (max-width: 768px) {
   /* 手机浏览器地址栏收展会改变可视高度，用 dvh 防止清单底部被裁掉 */
@@ -259,11 +268,19 @@ body { display: flex; flex-direction: column; }
   .card-price { font-size: 12px; }
   .card-badges { margin: 4px 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .card-badges::-webkit-scrollbar { display: none; }
-  .badge { flex: none; }
-  .card-line { font-size: 11px; }
+  .badge { flex: none; font-size: 12px; }
+  .card-line { font-size: 12px; }
   .card-levels { display: none; }
   .card-btns { margin-top: 6px; }
-  .card-btns button { padding: 2px 0; font-size: 12px; }
+  .card-btns button { padding: 2px 0; font-size: 13px; }
+  .lv-badge { font-size: 11px; }
+
+  /* 小屏图形清晰化：放大小区图钉/搜索图钉与分级徽标，表情符号尺寸 ≥14px，避免低分辨率字形发糊 */
+  .house-pin, .search-pin { width: 30px; height: 30px; left: -15px; top: -37px; font-size: 17px; }
+  .house-pin::after, .search-pin::after { border-width: 6px; }
+  .pin-lv { font-size: 14px; top: -10px; right: -10px; }
+  .center-dot { width: 36px; height: 36px; left: -18px; top: -44px; font-size: 14px; }
+  .center-label { top: -65px; font-size: 13px; }
 
   /* 收起状态：只留标题行，地图最大化 */
   #sidebar.collapsed { height: auto; }

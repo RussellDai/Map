@@ -226,24 +226,54 @@ body { display: flex; flex-direction: column; }
 .cs-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 #sidebarToggle { display: none; }
 
-/* ===== 移动端适配（≤768px）===== */
+/* ===== 移动端适配（≤768px）：顶栏紧凑化 + 底部抽屉式清单（同屏至少 3 张小区卡片） ===== */
 @media (max-width: 768px) {
+  /* 手机浏览器地址栏收展会改变可视高度，用 dvh 防止清单底部被裁掉 */
+  body { height: 100vh; height: 100dvh; }
   #topbar { height: auto; flex-wrap: wrap; padding: 6px 8px; gap: 6px; }
-  .brand { font-size: 14px; }
-  .search-box { flex: 1 1 100%; order: 3; }   /* 搜索框独占第二行 */
-  .actions { margin-left: 0; flex-wrap: wrap; gap: 6px; }
-  .btn { padding: 6px 9px; font-size: 12px; }
-  /* 上下布局：地图在上，清单在下（可收起） */
+  .brand { font-size: 13px; order: 1; white-space: nowrap; }
+  .search-box { flex: 1 1 0; order: 2; min-width: 0; }   /* 品牌 + 搜索框同一行 */
+  .actions { margin-left: 0; flex: 1 1 100%; order: 3; flex-wrap: nowrap; overflow-x: auto;
+    padding-bottom: 2px; scrollbar-width: none; }        /* 按钮行单行横滑，不再折成两三行 */
+  .actions::-webkit-scrollbar { display: none; }
+  .btn { padding: 6px 9px; font-size: 12px; flex: none; }
+
+  /* 上下布局：地图在上，清单做成底部抽屉（bottom sheet） */
   #main { flex-direction: column; }
   #map { order: 1; }
-  #sidebar { order: 2; width: 100%; height: 44%; border-right: none; border-top: 1px solid #e2e8f0; }
+  #sidebar { order: 2; width: 100%; height: 55%; border-right: none;
+    border-radius: 14px 14px 0 0; box-shadow: 0 -4px 14px rgba(0,0,0,.14); position: relative; }
+  #sidebar::before { content: ''; position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+    width: 42px; height: 4px; border-radius: 2px; background: #cbd5e1; }  /* 抽屉把手提示 */
+  .sidebar-head { padding: 12px 10px 4px; }
+  .sidebar-head h2 { font-size: 14px; }
+  .filters { padding: 4px 10px 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .sidebar-foot { display: none; }   /* 图例/长提示在小屏占比过高，隐藏，把高度让给清单 */
+
+  /* 卡片压缩：保证清单区同屏至少 3 个小区；
+     分级圆点与街景/3D/航拍按钮行（.card-levels）在 ✏️ 编辑弹窗里同样可用，小屏隐藏 */
+  .community-list { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 8px; }
+  .card { padding: 7px 9px; margin-bottom: 6px; }
+  .card-name { font-size: 13px; }
+  .card-price { font-size: 12px; }
+  .card-badges { margin: 4px 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .card-badges::-webkit-scrollbar { display: none; }
+  .badge { flex: none; }
+  .card-line { font-size: 11px; }
+  .card-levels { display: none; }
+  .card-btns { margin-top: 6px; }
+  .card-btns button { padding: 2px 0; font-size: 12px; }
+
+  /* 收起状态：只留标题行，地图最大化 */
   #sidebar.collapsed { height: auto; }
   #sidebar.collapsed .community-list, #sidebar.collapsed .filters,
   #sidebar.collapsed .sidebar-foot, #sidebar.collapsed .circle-settings { display: none; }
   #sidebarToggle { display: inline-block; }
-  .sidebar-head { padding: 8px 10px 6px; }
-  .sidebar-head h2 { font-size: 14px; }
-  .filters { padding: 6px 10px; }
+
+  /* 搜索下拉限高，避免小屏超出可视区 */
+  .search-results { max-height: min(340px, 48vh); }
+
   /* 路线面板避开左上角缩放控件，占满地图宽度 */
   .route-panel { left: 46px; right: 8px; transform: none; min-width: 0; top: 8px; max-width: none; }
   #toast { top: auto; bottom: 12px; }

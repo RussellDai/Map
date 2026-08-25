@@ -83,6 +83,11 @@ function tooltipHTML(c) {
   let h = '<div class="tip-name">' + escHtml(c.name) + '</div>';
   const lv = levelOf(c);
   if (lv) h += '<div class="tip-row"><span class="lv-badge lv-' + lv.key + '">' + (LV_ICON[lv.key] || '') + ' ' + lv.name + '</span></div>';
+  /* 所属手绘区域（v33+） */
+  if (window.Region) {
+    const regs = Region.pointInRegions(c.lat, c.lng);
+    if (regs.length) h += '<div class="tip-row">🎯 区域：' + regs.map(r => escHtml(r.name)).join('、') + '</div>';
+  }
   /* 到每个圆心（不限个数）的估算车程：直线距离 × 绕行系数 ÷ 平均车速 */
   Object.values(App.centers).forEach(ct => {
     const d = distanceKm([c.lat, c.lng], ct.latlng);
@@ -269,6 +274,12 @@ function renderSidebar() {
       return '<span class="badge ' + (inR ? 'in' : 'out') + '">' +
         escHtml(ct.cfg.name) + ' ' + dd.toFixed(1) + 'km · 🚗约' + driveMinutes(dd) + '分</span>';
     }).join('');
+    /* 所属手绘区域徽章（v33+） */
+    if (window.Region) {
+      badges = Region.pointInRegions(c.lat, c.lng).map(r =>
+        '<span class="badge region" style="border-color:' + r.color + ';color:' + r.color + '">🎯 ' +
+        escHtml(r.name) + '</span>').join('') + badges;
+    }
     const lvDots = CONFIG.levels.map(l =>
       '<button class="lv-dot lv-dot-' + l.key + (c.level === l.key ? ' active' : '') +
       '" data-act="lv" data-lv="' + l.key + '" title="设为「' + l.name + '」（再点一次取消）">' + (LV_ICON[l.key] || '') + '</button>').join('');
@@ -663,7 +674,9 @@ function importData(file) {
         /* 新版导出含 circles 数组则原样恢复；旧文件缺失时置 null，由 Store.load() 迁移生成 */
         circles: (d && Array.isArray(d.circles)) ? d.circles : null,
         centerOverrides: (d && d.centerOverrides) || {},
-        radiusOverrides: (d && d.radiusOverrides) || {}
+        radiusOverrides: (d && d.radiusOverrides) || {},
+        /* v33+ 手绘区域：有则原样恢复，旧文件无此键则清空 */
+        regions: (d && Array.isArray(d.regions)) ? d.regions : []
       };
       Store.save();
       /* 立即回读校验，防止隐私模式/禁用存储导致静默丢失 */

@@ -11,7 +11,13 @@ function routeStatus(html) { $('routeStatus').innerHTML = html; }
 /* 进入/退出路线模式 */
 Route.setMode = function (on) {
   Route.mode = on;
-  if (on) App.setAddMode(false);
+  if (on) {
+    App.setAddMode(false);
+    if (window.Region) {
+      if (Region.drawing) Region.setMode(false);
+      if (Region.editing) Region.endEdit();
+    }
+  }
   else Route.clear();
   $('routeBtn').classList.toggle('active', on);
   $('routeBtn').textContent = on ? '🧭 导航中：点击地图选点' : '🧭 路线导航';

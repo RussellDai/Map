@@ -178,6 +178,14 @@ Sync._merge = function (local, incoming) {
   });
   const merged = Object.assign({}, local, { communities: communities });
   if (Array.isArray(incoming.circles)) merged.circles = incoming.circles;
+  /* 手绘区域：按 id 合并、updatedAt 新者胜（与小区同策略，两端新增都保留） */
+  const regMap = new Map();
+  (local.regions || []).forEach(r => regMap.set(r.id, r));
+  (incoming.regions || []).forEach(r => {
+    const old = regMap.get(r.id);
+    if (!old || (r.updatedAt || 0) >= (old.updatedAt || 0)) regMap.set(r.id, r);
+  });
+  merged.regions = Array.from(regMap.values());
   return merged;
 };
 

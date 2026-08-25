@@ -196,6 +196,33 @@ body { display: flex; flex-direction: column; -webkit-font-smoothing: antialiase
 .route-status { background: #f8fafc; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;
   color: #334155; line-height: 1.6; }
 .route-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ===== 划区域（手绘购房区域） ===== */
+.region-panel { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+  background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  padding: 10px 14px; z-index: 1200; min-width: 340px; max-width: calc(100% - 16px);
+  font-size: 13px; color: #0f172a; }
+.region-title { font-weight: 700; margin-bottom: 6px; }
+.region-hint { font-weight: 400; font-size: 11px; color: #94a3b8; }
+.region-status { background: #f8fafc; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;
+  color: #334155; line-height: 1.6; }
+.region-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 划区域模式：全图十字光标（含圆圈/标记上方） */
+#map.region-mode { cursor: crosshair; }
+#map.region-mode .leaflet-interactive { cursor: crosshair !important; }
+/* 区域名称标签（常驻显示在多边形中心） */
+.leaflet-tooltip.region-label { background: rgba(255,255,255,.92); border: 1px solid #cbd5e1;
+  border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,.15); color: #0f172a;
+  font-size: 12px; font-weight: 700; padding: 2px 10px; }
+.leaflet-tooltip.region-label::before { display: none; }
+/* 顶点微调手柄：大点=顶点（可拖拽，右键删除），小点=边中点（点击插入） */
+.rg-vertex { width: 14px; height: 14px; border-radius: 50%; background: #fff;
+  border: 3px solid #e11d48; box-shadow: 0 1px 4px rgba(0,0,0,.4); cursor: grab; }
+.rg-vertex:active { cursor: grabbing; }
+.rg-mid { width: 9px; height: 9px; border-radius: 50%; background: rgba(225,29,72,.55);
+  border: 1px solid #fff; cursor: copy; }
+/* 侧栏卡片：所属区域徽章 */
+.badge.region { background: #fff; font-weight: 600; }
 .route-btns .btn { padding: 5px 10px; font-size: 12px; }
 .route-pin { transform: translate(-50%, -100%); padding: 3px 9px; border-radius: 12px; color: #fff;
   font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
@@ -293,6 +320,8 @@ body { display: flex; flex-direction: column; -webkit-font-smoothing: antialiase
 
   /* 路线面板避开左上角缩放控件，占满地图宽度 */
   .route-panel { left: 46px; right: 8px; transform: none; min-width: 0; top: 8px; max-width: none; }
+  /* 划区域面板：移动端占满宽度，避开底部状态条 */
+  .region-panel { left: 8px; right: 8px; transform: none; min-width: 0; bottom: 30px; max-width: none; }
   #toast { top: auto; bottom: 12px; }
   .cs-row { flex-wrap: wrap; }
   .amap3d-box { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }

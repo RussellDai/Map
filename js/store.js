@@ -8,7 +8,7 @@ function defaultCircles() {
 }
 
 const Store = {
-  data: { communities: {}, circles: null, centerOverrides: {} },
+  data: { communities: {}, circles: null, centerOverrides: {}, regions: [] },
 
   load() {
     try {
@@ -21,6 +21,10 @@ const Store = {
     if (!this.data.centerOverrides) this.data.centerOverrides = {};
     if (!this.data.radiusOverrides) this.data.radiusOverrides = {};
     if (!this.data.communities) this.data.communities = {};
+    /* 手绘购房区域（v33+）：旧数据无此键时补空数组 */
+    if (!Array.isArray(this.data.regions)) this.data.regions = [];
+    this.data.regions = this.data.regions.filter(r =>
+      r && r.id && Array.isArray(r.latlngs) && r.latlngs.length >= 3);
     /* 圆圈数据迁移：旧版只有 centerOverrides/radiusOverrides，升级为统一的 circles 数组。
        仅当 circles 键缺失时才迁移；空数组是用户主动删除全部圆圈的结果，予以保留。 */
     if (!Array.isArray(this.data.circles)) {

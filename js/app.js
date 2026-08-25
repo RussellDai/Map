@@ -36,14 +36,16 @@ function buildCircles() {
       fillColor: rec.color, fillOpacity: 0.05, bubblingMouseEvents: false
     }).addTo(App.map);
     circle.bindTooltip(rec.name + ' · ' + (rec.radius / 1000) + '公里生活圈', { sticky: true });
-    /* 圆圈默认拦截点击（bubblingMouseEvents:false）；路线/添加模式下转发 */
+    /* 圆圈默认拦截点击（bubblingMouseEvents:false）；划区域/路线/添加模式下转发 */
     circle.on('click', e => {
+      if (Region.drawing) { Region.addPoint(e.latlng); return; }
       if (Route.mode) { Route.assign(e.latlng); return; }
       if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区');
     });
     const marker = L.marker(ll, { draggable: true, icon: centerIcon(rec), zIndexOffset: 1000 }).addTo(App.map);
     marker.bindTooltip('拖动可微调「' + rec.name + '」圆心位置', { direction: 'top' });
     marker.on('click', e => {
+      if (Region.drawing) { Region.addPoint(e.latlng); return; }
       if (Route.mode) { Route.assign(e.latlng); return; }
       if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区');
     });
@@ -70,9 +72,11 @@ function initApp() {
   console.log('[存储诊断] 本站点本地已保存小区 ' + Store.all().length + ' 个，站点地址：' + location.origin);
   const map = L.map('map', { preferCanvas: true }).setView([31.71, 119.85], 10);
   App.map = map;
-  /* 路线面板浮在地图容器内：阻止点击/滚轮穿透到地图 */
+  /* 路线/划区域面板浮在地图容器内：阻止点击/滚轮穿透到地图 */
   L.DomEvent.disableClickPropagation($('routePanel'));
   L.DomEvent.disableScrollPropagation($('routePanel'));
+  L.DomEvent.disableClickPropagation($('regionPanel'));
+  L.DomEvent.disableScrollPropagation($('regionPanel'));
 
   /* 高德底图：街道图 + 卫星图（右下角可切换） */
   const road = L.tileLayer(CONFIG.tileRoad, {
@@ -91,6 +95,10 @@ function initApp() {
   /* 生活圈圆圈 + 可拖拽圆心（数据驱动，支持任意增删改，见 buildCircles） */
   buildCircles();
 
+  /* 手绘购房区域：沿马路/河流/圆圈边吸附布点（见 region.js） */
+  Region.init();
+  Region.buildAll();
+
   /* 视野自适应：同时容纳两个圆 */
   let b = null;
   Object.values(App.centers).forEach(c => {
@@ -108,8 +116,9 @@ function initApp() {
   });
   if (badRec) toast('⚠️ 有 ' + badRec + ' 条小区数据坐标无效已跳过，可导出检查后重新导入', 'error');
 
-  /* 点击地图：路线模式优先设置起终点；否则手动添加（仅在添加模式下） */
+  /* 点击地图：划区域优先布点；路线模式设置起终点；否则手动添加（仅在添加模式下） */
   map.on('click', e => {
+    if (Region.drawing) { Region.addPoint(e.latlng); return; }
     if (Route.mode) { Route.assign(e.latlng); return; }
     if (App.addMode) App.addManualAt(e.latlng.lat, e.latlng.lng, '新小区');
   });
@@ -225,6 +234,7 @@ App.resetCircles = function () {
 
 App.setAddMode = function (on) {
   if (on && Route.mode) Route.setMode(false);
+  if (on && Region.drawing) Region.setMode(false);
   App.addMode = on;
   $('addModeBtn').classList.toggle('active', on);
   $('addModeBtn').textContent = on ? '🎯 点击地图放置小区（再按一次取消）' : '➕ 手动标记小区';
@@ -254,6 +264,8 @@ App.addCommunityMarker = function (c) {
   layer.bindTooltip(() => tooltipHTML(App.records.get(c.id) || c),
     { sticky: true, direction: 'top', offset: [0, -8] });
   layer.on('click', e => {
+    /* 划区域模式下点击已有点 = 在该位置布点（已有点不冒泡到地图，需手动转发） */
+    if (Region.drawing && e.latlng) { Region.addPoint(e.latlng); return; }
     /* 路线模式下点击 = 设为起点/终点 */
     if (Route.mode && e.latlng) { Route.assign(e.latlng); return; }
     /* 添加模式下点击已有点 = 在其位置放新标记（已有点不冒泡到地图，否则会被吞掉） */

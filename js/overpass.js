@@ -131,5 +131,78 @@ const Overpass = (() => {
     } finally { loading = false; }
   }
 
-  return { runQuery: runQuery, loadInView: loadInView };
+  /* ===== 划区域吸附：道路/水系线段缓存 =====
+     OSM 为 WGS84，需纠偏到 GCJ02 才能与高德底图对齐 */
+  const snap = { segs: [], covered: [], loading: false };
+
+  /* 按视野加载道路+水系几何（静默，不操作状态条；由划区域功能调用）
+     返回：新增线段数；-1 表示条件不满足（缩放太小/范围太大/正在加载） */
+  async function loadSnapData(bounds, zoom) {
+    if (!bounds || zoom < 13) return -1;   /* 低倍视野太大，查询会被限流/超时 */
+    const b = bounds.pad(0.2);
+    const latSpan = b.getNorth() - b.getSouth(), lngSpan = b.getEast() - b.getWest();
+    if (latSpan * lngSpan > 0.02) return -1;
+    if (snap.covered.some(c =>
+      b.getSouth() >= c[0] && b.getWest() >= c[1] && b.getNorth() <= c[2] && b.getEast() <= c[3])) return 0;
+    if (snap.loading) return -1;
+    snap.loading = true;
+    const bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
+      .map(v => v.toFixed(5)).join(',');
+    /* 道路（排除面状广场）+ 水系线（河/运河）+ 水面/河岸面（取其边线） */
+    const q = '[out:json][timeout:25];(' +
+      'way["highway"]["area"!~"."](' + bbox + ');' +
+      'way["waterway"](' + bbox + ');' +
+      'way["natural"~"water|riverbank"](' + bbox + ');' +
+      ');out geom 1500;';
+    try {
+      const json = await runQuery(q);
+      let added = 0;
+      (json.elements || []).forEach(el => {
+        const g = el.geometry;
+        if (!g || g.length < 2) return;
+        const tags = el.tags || {};
+        const kind = (tags.waterway || tags.natural) ? 'water' : 'road';
+        const name = tags.name || '';
+        let prev = null;
+        if (el.type === 'way') {
+          /* 线：相邻节点连成线段 */
+          g.forEach(n => {
+            const p = GC.wgs84ToGcj02(n.lon, n.lat);   /* [lng,lat] */
+            const pt = [p[1], p[0]];
+            if (prev) { snap.segs.push({ a: prev, b: pt, name: name, kind: kind }); added++; }
+            prev = pt;
+          });
+        }
+      });
+      snap.covered.push([b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]);
+      if (snap.segs.length > 60000) snap.segs.splice(0, snap.segs.length - 60000); /* 内存护栏 */
+      return added;
+    } finally { snap.loading = false; }
+  }
+
+  /* 把点吸附到最近的已加载线段上（平面投影近似，容差内返回 {lat,lng,dist,name,kind}） */
+  function snapToFeature(latlng, tolMeters) {
+    if (!snap.segs.length) return null;
+    const cos = Math.cos(latlng.lat * Math.PI / 180);
+    const K = 111320, Kx = K * cos;
+    const px = latlng.lng * Kx, py = latlng.lat * K;
+    let best = null;
+    for (let i = 0; i < snap.segs.length; i++) {
+      const s = snap.segs[i];
+      const ax = s.a[1] * Kx, ay = s.a[0] * K, bx = s.b[1] * Kx, by = s.b[0] * K;
+      const dx = bx - ax, dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const qx = ax + t * dx, qy = ay + t * dy;
+      const ex = px - qx, ey = py - qy;
+      const dist = Math.sqrt(ex * ex + ey * ey);
+      if (dist <= tolMeters && (!best || dist < best.dist)) {
+        best = { dist: dist, lat: qy / K, lng: qx / Kx, name: s.name, kind: s.kind };
+      }
+    }
+    return best;
+  }
+
+  return { runQuery: runQuery, loadInView: loadInView, loadSnapData: loadSnapData, snapToFeature: snapToFeature };
 })();

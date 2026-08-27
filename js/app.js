@@ -149,6 +149,7 @@ function initApp() {
     if (!box.contains(e.target) && e.target !== $('searchInput')) box.className = 'search-results hidden';
   });
   $('exportBtn').onclick = exportData;
+  $('shareBtn').onclick = shareSnapshot;
   $('importBtn').onclick = () => $('importFile').click();
   $('importFile').onchange = e => {
     if (e.target.files[0]) importData(e.target.files[0]);

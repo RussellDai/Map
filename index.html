@@ -6,7 +6,7 @@
 <title>常州购房地图 · 生活圈与购房规划</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
-<link rel="stylesheet" href="css/style.css?v=33">
+<link rel="stylesheet" href="css/style.css?v=34">
 </head>
 <body>
 <header id="topbar">
@@ -22,6 +22,7 @@
     <button id="regionBtn" class="btn" title="沿马路/河流/圆圈边点击布点，围成自定义购房区域">🎨 划区域</button>
     <button id="syncBtn" class="btn" title="绑定 Gitee/GitHub 账号，跨设备自动同步清单与圆圈">☁ 同步</button>
     <button id="exportBtn" class="btn" title="导出已保存的小区信息与圆心位置">⬇ 导出</button>
+    <button id="shareBtn" class="btn" title="生成当前地图的只读快照文件，微信发给对方，用浏览器打开即可查看">📤 分享</button>
     <button id="importBtn" class="btn" title="从 JSON 文件恢复数据">⬆ 导入</button>
     <input type="file" id="importFile" accept=".json,application/json" class="hidden">
   </div>
@@ -86,16 +87,17 @@
 <div id="toast" class="hidden"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>window.L||document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')</script>
-<script src="js/gcoord.js?v=33"></script>
-<script src="js/config.js?v=33"></script>
-<script src="js/store.js?v=33"></script>
-<script src="js/overpass.js?v=33"></script>
-<script src="js/ui.js?v=33"></script>
-<script src="js/amap3d.js?v=33"></script>
-<script src="js/drive.js?v=33"></script>
-<script src="js/route.js?v=33"></script>
-<script src="js/region.js?v=33"></script>
-<script src="js/sync.js?v=33"></script>
-<script src="js/app.js?v=33"></script>
+<script src="js/gcoord.js?v=34"></script>
+<script src="js/config.js?v=34"></script>
+<script src="js/store.js?v=34"></script>
+<script src="js/overpass.js?v=34"></script>
+<script src="js/ui.js?v=34"></script>
+<script src="js/amap3d.js?v=34"></script>
+<script src="js/drive.js?v=34"></script>
+<script src="js/route.js?v=34"></script>
+<script src="js/region.js?v=34"></script>
+<script src="js/sync.js?v=34"></script>
+<script src="js/share.js?v=34"></script>
+<script src="js/app.js?v=34"></script>
 </body>
 </html>
